@@ -48,8 +48,14 @@ def create_access_token(data: dict):
     )
 
 
-def create_refresh_token(data: dict):
-    """تولید توکن تمدید نشست (Refresh Token)"""
+def create_refresh_token(data: dict, jti: str | None = None):
+    """
+    تولید توکن تمدید نشست (Refresh Token).
+
+    jti اختیاری است: وقتی نشستِ سمت سرور (refresh_sessions) از قبل با
+    یک jti مشخص ثبت شده، همان jti داخل توکن قرار می‌گیرد تا JWT و
+    رکورد DB به یکدیگر گره بخورند (چرخش/ابطال سمت سرور).
+    """
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
@@ -58,7 +64,7 @@ def create_refresh_token(data: dict):
         {
             "exp": expire,
             "iat": datetime.now(timezone.utc),
-            "jti": uuid4().hex,
+            "jti": jti or uuid4().hex,
             "type": TOKEN_TYPE_REFRESH,
         }
     )

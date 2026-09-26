@@ -16,6 +16,7 @@ import "./NotificationBell.css";
 const TYPE_META = {
   no_contact_reminder: { Icon: Clock, color: "warning", label: "یادآوری" },
   daily_followup_digest: { Icon: Calendar, color: "primary", label: "خلاصه روزانه" },
+  follow_up_due: { Icon: Calendar, color: "warning", label: "سررسید پیگیری" },
   lead_escalated: { Icon: ShieldAlert, color: "danger", label: "ارجاع اضطراری" },
   lead_escalated_manager: { Icon: ShieldAlert, color: "danger", label: "ارجاع اضطراری" },
   lead_assigned: { Icon: UserPlus, color: "success", label: "ارجاع پرونده" },

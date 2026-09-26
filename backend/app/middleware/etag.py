@@ -10,6 +10,21 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.types import ASGIApp
 
 
+def _apply_auth_vary(request: Request, headers: dict) -> None:
+    """
+    SECURITY: responses of authenticated GETs are user-specific. Without
+    an explicit `Vary: Authorization`, an intermediate cache/proxy could
+    reuse one user's ETagged CRM payload for a different bearer identity.
+    Existing Vary values (e.g. `Origin` added by CORSMiddleware) are kept.
+    """
+    if not request.headers.get("authorization"):
+        return
+    values = [v.strip() for v in headers.get("vary", "").split(",") if v.strip()]
+    if "authorization" not in [v.lower() for v in values]:
+        values.append("authorization")
+    headers["vary"] = ", ".join(values)
+
+
 class ETagMiddleware(BaseHTTPMiddleware):
     MAX_BODY = 64 * 1024  # only hash reasonably small JSON payloads
 
@@ -57,10 +72,12 @@ class ETagMiddleware(BaseHTTPMiddleware):
                 if k.lower() not in {"content-type", "content-length"}
             }
             preserved["ETag"] = etag
+            _apply_auth_vary(request, preserved)
             return Response(status_code=304, headers=preserved)
 
         headers = dict(response.headers)
         headers["ETag"] = etag
+        _apply_auth_vary(request, headers)
         return Response(
             content=body,
             status_code=response.status_code,

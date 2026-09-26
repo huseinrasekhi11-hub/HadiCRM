@@ -1,13 +1,11 @@
-import { api, invalidate } from "./requestCache";
+import { api, bumpSessionEpoch } from "./requestCache";
 
 export { api };
 
 /** Drop every cached response (used at login/logout boundaries). */
 export function clearRequestCache() {
-  invalidate();
+  bumpSessionEpoch();
 }
-
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 const ACCESS_TOKEN_KEY = "hadiflow_access_token";
 const REFRESH_TOKEN_KEY = "hadiflow_refresh_token";
@@ -15,10 +13,11 @@ const REFRESH_TOKEN_KEY = "hadiflow_refresh_token";
 function clearSession() {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
-  // Cached payloads belong to the previous session; without this a
-  // different user logging in on the same browser could be served
+  // Cached payloads belong to the previous session; bumping the epoch
+  // invalidates them AND namespaces any entry still in flight, so a
+  // different user logging in on the same browser can never be served
   // another user's data from the TTL/offline cache.
-  invalidate();
+  bumpSessionEpoch();
   window.dispatchEvent(new Event("auth-unauthorized"));
 }
 
@@ -41,6 +40,12 @@ async function refreshAccessToken() {
       .then((res) => {
         const newToken = res.data?.access_token;
         if (newToken) localStorage.setItem(ACCESS_TOKEN_KEY, newToken);
+        // Refresh tokens now ROTATE server-side (replay of a consumed
+        // token revokes the whole session family). Persisting the new
+        // refresh token is mandatory — keeping the old one would lock
+        // the user out on the next refresh.
+        const newRefresh = res.data?.refresh_token;
+        if (newRefresh) localStorage.setItem(REFRESH_TOKEN_KEY, newRefresh);
         return newToken || null;
       })
       .catch(() => null)
@@ -79,7 +84,7 @@ api.interceptors.response.use(
 // ---- Auth ----
 export async function login(mobile, password) {
   // Never mix cached data across accounts on a shared browser.
-  invalidate();
+  bumpSessionEpoch();
   const form = new URLSearchParams();
   form.append("username", mobile);
   form.append("password", password);
@@ -91,6 +96,24 @@ export async function login(mobile, password) {
 export async function getMe() {
   const res = await api.get("/auth/me");
   return res.data;
+}
+/**
+ * Server-side logout: revokes the refresh session so the token cannot be
+ * replayed even if it was copied before logout. Best-effort — callers
+ * must clear local state regardless of the outcome.
+ */
+export async function logoutSession() {
+  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+  if (!refreshToken) return;
+  try {
+    await api.post(
+      "/auth/logout",
+      { refresh_token: refreshToken },
+      { skipAuthRefresh: true },
+    );
+  } catch {
+    // network/API failure must not block local logout
+  }
 }
 export async function getDashboard() {
   const res = await api.get("/dashboard/");

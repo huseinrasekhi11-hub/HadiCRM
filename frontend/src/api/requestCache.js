@@ -24,8 +24,21 @@ api.interceptors.request.use((config) => {
 // access token force-logged the user out instead of silently refreshing.
 
 const DEFAULT_TTL = 30_000;
-const cache = new Map();   // key -> { data, etag, expiresAt }
+const cache = new Map();   // key -> { data, etag, expiresAt, epoch }
 const inflight = new Map(); // key -> Promise
+
+// Session namespace: every login/logout/session-clear boundary bumps the
+// epoch, and cached entries are only served when they were stored under the
+// CURRENT epoch. This guarantees a second account logging in on the same
+// browser/tab can never be served the previous account's cached CRM
+// payloads, even if an invalidate() call is missed or races with an
+// in-flight response landing after the boundary.
+let sessionEpoch = 0;
+
+export function bumpSessionEpoch() {
+  sessionEpoch += 1;
+  invalidate();
+}
 
 const stableKey = (url, params) =>
   url + (params ? "?" + JSON.stringify(params, Object.keys(params).sort()) : "");
@@ -34,7 +47,9 @@ export async function cachedGet(url, { params, ttl = DEFAULT_TTL, force = false 
   const key = stableKey(url, params);
   const entry = cache.get(key);
 
-  if (!force && entry && entry.expiresAt > Date.now()) return entry.data;
+  if (!force && entry && entry.epoch === sessionEpoch && entry.expiresAt > Date.now()) {
+    return entry.data;
+  }
 
   if (!force && inflight.has(key)) return inflight.get(key);
 
@@ -48,18 +63,19 @@ export async function cachedGet(url, { params, ttl = DEFAULT_TTL, force = false 
         data: res.data,
         etag: res.headers.etag || entry?.etag,
         expiresAt: Date.now() + ttl,
+        epoch: sessionEpoch,
       };
       cache.set(key, next);
       return res.data;
     })
     .catch((err) => {
-      // 304 -> serve from cache
-      if (err.response?.status === 304 && entry) {
+      // 304 -> serve from cache (only if it belongs to the current session)
+      if (err.response?.status === 304 && entry && entry.epoch === sessionEpoch) {
         entry.expiresAt = Date.now() + ttl;
         return entry.data;
       }
       // Offline / network error -> serve stale cache if available
-      if (!err.response && entry) return entry.data;
+      if (!err.response && entry && entry.epoch === sessionEpoch) return entry.data;
       throw err;
     })
     .finally(() => inflight.delete(key));

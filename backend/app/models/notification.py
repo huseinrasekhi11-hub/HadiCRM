@@ -27,6 +27,7 @@ NOTIFICATION_TYPES = {
     "lead_escalated_manager", # قانون ۳: پرونده‌ای به شما ارجاع داده شد (برای مدیر)
     "lead_assigned",          # ارجاع/ارجاع مجدد پرونده
     "duplicate_submission",   # ثبت تکراری برای پرونده‌ی این کاربر ثبت شد
+    "follow_up_due",          # قانون ۴: سررسید next_follow_up یک لید فرا رسید
 }
 
 

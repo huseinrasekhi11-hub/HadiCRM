@@ -51,6 +51,23 @@ class User(Base):
     )
 
     # ----------------------------------------------------
+    # شماره موبایل canonical (هویت یکتای نرمال‌شده)
+    #
+    # «09121111111»، «+989121111111» و «۰۹۱۲۱۱۱۱۱۱۱» یک شماره‌اند؛
+    # پیش از این هر کدام هویت جدا بودند و لاگین با برابریِ دقیقِ
+    # رشته‌ی خام انجام می‌شد (کاربر با فرمتِ متفاوت قفل می‌شد).
+    # این ستون همیشه از روی mobile محاسبه می‌شود (event listener
+    # پایین) و جست‌وجوی هویت/لاگین اول از آن استفاده می‌کند.
+    # NULL فقط برای داده‌ی قدیمیِ متناقض (دو حساب با شماره‌ی معادل)
+    # مجاز است؛ ایندکس یکتا چند NULL را در PostgreSQL تحمل می‌کند.
+    # ----------------------------------------------------
+    mobile_normalized: Mapped[str | None] = mapped_column(
+        String(20),
+        unique=True,
+        nullable=True,
+    )
+
+    # ----------------------------------------------------
     # رمز عبور (Hash)
     # ----------------------------------------------------
     password: Mapped[str] = mapped_column(
@@ -116,3 +133,20 @@ class User(Base):
     # بود که تعریف تایپ‌دار بالا را بی‌صدا بازنویسی می‌کرد و nullable=False
     # را از بین می‌برد. تعریف تکراری حذف شد؛ مرجع یگانه، همان ستون بالاست.
     permissions = Column(JSON, default=list) # ذخیره دسترسی‌های نقطه‌ای به صورت آرایه
+
+
+# ==========================================================
+# همگام‌سازی خودکار mobile_normalized
+# هر مسیر ساخت/به‌روزرسانی User (CRUD، اسکریپت‌های seed، تست‌ها)
+# بدون نیاز به تغییر کد، ستون canonical را پر نگه می‌دارد.
+# ==========================================================
+from sqlalchemy import event  # noqa: E402
+
+from app.core.text_normalization import normalize_mobile  # noqa: E402
+
+
+@event.listens_for(User, "before_insert")
+@event.listens_for(User, "before_update")
+def _sync_user_mobile_normalized(_mapper, _connection, target: User) -> None:
+    if target.mobile:
+        target.mobile_normalized = normalize_mobile(target.mobile)

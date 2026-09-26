@@ -106,6 +106,19 @@ class Lead(Base):
         nullable=True,
     )
 
+    # قانون ۴ (یادآوری سررسید پیگیری): پرچم یک‌بارمصرف، مشابه sla_notified
+    # در قانون ۱. وقتی next_follow_up فرامی‌رسد، job یادآوری فقط یک‌بار
+    # نوتیفیکیشن می‌سازد و این پرچم را True می‌کند تا در اجرای بعدی همان
+    # سررسید دوباره نوتیفیکیشن نسازد. با هر تغییرِ next_follow_up توسط
+    # کارشناس (ثبت فعالیت/تنظیم پیگیری جدید)، این پرچم باید در لایه‌ی
+    # CRUD به False بازنشانی شود تا سررسید جدید بتواند دوباره یادآوری کند.
+    follow_up_notified: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

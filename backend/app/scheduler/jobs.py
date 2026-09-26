@@ -17,14 +17,27 @@
     به‌صورت خودکار از کارشناس گرفته و به مدیر (نقش CEO) ارجاع
     داده می‌شود.
 
+قانون ۴ (جدید) — یادآوری سررسید پیگیری:
+    وقتی next_follow_up یک لید فرامی‌رسد، به کارشناسِ مسئول یک
+    نوتیفیکیشنِ داخل‌سایت («این پیگیری الان سررسید شده») ارسال می‌شود.
+    پیش از این هیچ رویدادی برای این لحظه وجود نداشت؛ next_follow_up
+    فقط منفعلانه در فیلترها/داشبورد نمایش داده می‌شد و کارشناس فقط در
+    صورتی متوجه سررسید می‌شد که خودش به سراغ صفحه‌ی «کارهای روزانه»
+    برود. مثل قانون ۱ (sla_notified)، این یادآوری هم یک‌بار در ازای هر
+    سررسید ارسال می‌شود (پرچم follow_up_notified) و با تنظیم دستیِ
+    سررسید جدید توسط کارشناس دوباره فعال می‌شود.
+
 توابع و نام‌های قبلی (send_daily_morning_reminders، start_scheduler)
 عمداً حفظ شده‌اند تا نقاطی از پروژه که به آن‌ها وابسته‌اند نشکنند.
 """
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+import functools
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy import text
 
-from app.database.database import SessionLocal
+from app.database.database import SessionLocal, engine
 from app.models.lead import Lead
 from app.models.user import User
 from app.constants.roles import Roles
@@ -40,6 +53,74 @@ from app.core.logger import app_logger
 
 NO_CONTACT_WINDOW_MINUTES = 60
 ESCALATION_THRESHOLD_DAYS = 3
+
+# ==========================================================
+# قفل تک‌نسخه‌ای jobها (multi-worker safety)
+#
+# APScheduler داخل lifespan هر فرایند API استارت می‌شود؛ با
+# uvicorn --workers N یا چند کانتینر، هر job N بار اجرا و
+# نوتیفیکیشن/ارجاع تکراری ساخته می‌شد. هر job پیش از اجرا یک
+# advisory lock غیرمسدودکننده روی PostgreSQL می‌گیرد؛ اگر نمونه‌ی
+# دیگری همان لحظه مشغول همان job باشد، این اجرا بدون اثر جانبی
+# رد می‌شود. روی دیتابیس‌های غیر PostgreSQL (فقط تست‌های واحد)
+# قفل بی‌اثر است و job مستقیم اجرا می‌شود.
+# ==========================================================
+_JOB_LOCK_KEYS = {
+    "rule1_no_contact": 910001,
+    "rule2_morning_digest": 910002,
+    "rule3_escalation": 910003,
+    "rule4_followup_due": 910004,
+    "refresh_session_cleanup": 910005,
+}
+
+
+@contextmanager
+def _single_instance_lock(lock_name: str):
+    """
+    قفل advisory در سطح session روی یک اتصال اختصاصی.
+
+    اتصال تا پایان بلوک job باز می‌ماند تا lock و unlock حتماً روی
+    همان connection اجرا شوند (اتصالِ Session کاری بین commitها به
+    pool برمی‌گردد و برای این کار قابل اتکا نیست).
+    """
+    key = _JOB_LOCK_KEYS[lock_name]
+    if engine.dialect.name != "postgresql":
+        yield True
+        return
+    conn = engine.connect()
+    try:
+        acquired = conn.execute(
+            text("SELECT pg_try_advisory_lock(:key)"), {"key": key}
+        ).scalar()
+        if not acquired:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
+    finally:
+        conn.close()
+
+
+def single_instance(lock_name: str):
+    """دکوریتور: job فقط در یک فرایند/نسخه در هر لحظه اجرا می‌شود."""
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            with _single_instance_lock(lock_name) as acquired:
+                if not acquired:
+                    app_logger.info(
+                        f"[Scheduler] {lock_name}: another worker is already "
+                        "running this job; skipping this tick."
+                    )
+                    return None
+                return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 def _aware(dt):
@@ -81,6 +162,7 @@ def _get_designated_manager(db):
     )
 
 
+@single_instance("rule2_morning_digest")
 def send_daily_morning_reminders():
     """
     قانون ۲: هر روز ساعت ۸ صبح، خلاصه‌ی پرونده‌های باز هر کارشناس ارسال می‌شود.
@@ -159,6 +241,7 @@ def _process_no_contact_candidate(db, lead) -> None:
     app_logger.info(f"[Scheduler] Rule 1: reminder sent for lead {lead.id}.")
 
 
+@single_instance("rule1_no_contact")
 def check_no_contact_reminders():
     """
     قانون ۱: اگر ۶۰ دقیقه از آخرین ارجاع یک پرونده گذشته و هیچ تماس/فعالیتی
@@ -186,6 +269,77 @@ def check_no_contact_reminders():
             except Exception as exc:  # noqa: BLE001
                 db.rollback()
                 app_logger.exception(f"[Scheduler] Rule 1 failed for lead {lead.id}: {exc}")
+    finally:
+        db.close()
+
+
+def _process_due_followup(db, lead) -> None:
+    """پردازش یک پرونده در قانون ۴ (در تراکنش مستقل)."""
+    owner = db.query(User).filter(User.id == lead.owner_id).first()
+    # کاربر غیرفعال نباید یادآوری بگیرد؛ ولی پرچم را هم اینجا True
+    # می‌کنیم وگرنه این لید برای همیشه در هر اجرا candidate می‌ماند
+    # بدون اینکه هرگز نوتیفیکیشنی واقعاً ارسال شود.
+    if not owner or not owner.is_active:
+        lead.follow_up_notified = True
+        db.commit()
+        return
+
+    create_notification(
+        db,
+        user_id=owner.id,
+        notification_type="follow_up_due",
+        title="سررسید پیگیری",
+        message=f"زمان پیگیریِ پرونده‌ی «{lead.customer_name}» فرا رسیده است.",
+        lead_id=lead.id,
+        commit=False,
+    )
+    lead.follow_up_notified = True
+    db.commit()
+    app_logger.info(f"[Scheduler] Rule 4: follow-up reminder sent for lead {lead.id}.")
+
+
+@single_instance("rule4_followup_due")
+def check_due_followups():
+    """
+    قانون ۴: وقتی زمانِ next_follow_up یک لید فرا می‌رسد (یعنی همین الان
+    یا در گذشته است) و هنوز برای همین سررسید یادآوری نشده، به کارشناسِ
+    مسئولِ آن لید یک نوتیفیکیشنِ داخل‌سایت ارسال می‌شود.
+
+    این کار جدا از «قانون ۱» است: قانون ۱ فقط درباره‌ی عدم تماس در ۶۰
+    دقیقه‌ی اول *بعد از ارجاع* است، نه سررسید پیگیریِ برنامه‌ریزی‌شده‌ای
+    که خودِ کارشناس (هنگام ثبت یک تماس/یادداشت) تعیین کرده. پیش از این
+    next_follow_up فقط منفعلانه در فیلترهای «امروز/عقب‌افتاده» و
+    داشبورد نمایش داده می‌شد؛ اگر کارشناس در همان لحظه اپ را باز نکرده
+    بود، هیچ‌چیز به او یادآوری نمی‌کرد.
+
+    follow_up_notified یک پرچم یک‌بارمصرف است (مثل sla_notified در
+    قانون ۱): بعد از ارسال یادآوری True می‌شود تا در اجراهای بعدیِ این
+    job (هر ۵ دقیقه) دوباره برای همان سررسید نوتیفیکیشن تکراری نسازد.
+    وقتی کارشناس سررسید جدیدی تنظیم می‌کند (یا آن را پاک می‌کند)، این
+    پرچم در لایه‌ی CRUD (create_activity / update_lead_followup) به
+    False بازمی‌گردد تا سررسید جدید بتواند دوباره یادآوری کند.
+    """
+    app_logger.info("[Scheduler] Rule 4: follow-up due check triggered.")
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+
+        candidates = db.query(Lead).filter(
+            Lead.is_deleted == False,
+            Lead.status.notin_(CLOSED_STATUSES),
+            Lead.follow_up_notified == False,
+            Lead.next_follow_up.isnot(None),
+            Lead.next_follow_up <= now,
+        ).all()
+
+        for lead in candidates:
+            # خطای یک پرونده نباید پردازش بقیه را متوقف کند (همان
+            # الگوی قانون ۱ و ۳).
+            try:
+                _process_due_followup(db, lead)
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()
+                app_logger.exception(f"[Scheduler] Rule 4 failed for lead {lead.id}: {exc}")
     finally:
         db.close()
 
@@ -277,6 +431,7 @@ def _escalate_one_lead(db, lead, manager, cutoff) -> None:
     db.commit()
 
 
+@single_instance("rule3_escalation")
 def escalate_stale_leads():
     """
     قانون ۳: اگر ۳ روز از آخرین فعالیت روی یک پرونده‌ی باز بگذرد، پرونده
@@ -312,6 +467,27 @@ def escalate_stale_leads():
         db.close()
 
 
+@single_instance("refresh_session_cleanup")
+def cleanup_expired_refresh_sessions():
+    """
+    پاک‌سازی نشست‌های توکن تمدید که از انقضا+دوره‌ی نگهداری گذشته‌اند
+    تا جدول refresh_sessions رشد بی‌پایان نکند.
+    """
+    app_logger.info("[Scheduler] refresh-session cleanup triggered.")
+    from app.services.auth_service import cleanup_expired
+
+    db = SessionLocal()
+    try:
+        removed = cleanup_expired(db)
+        if removed:
+            app_logger.info(f"[Scheduler] removed {removed} expired refresh session(s).")
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        app_logger.exception(f"[Scheduler] refresh-session cleanup failed: {exc}")
+    finally:
+        db.close()
+
+
 def start_scheduler():
     scheduler = BackgroundScheduler()
 
@@ -327,8 +503,16 @@ def start_scheduler():
     # قانون ۱: هر ۵ دقیقه بررسی می‌شود که آیا پرونده‌ای بیش از ۶۰ دقیقه بدون اقدام مانده
     scheduler.add_job(check_no_contact_reminders, 'interval', minutes=5)
 
+    # قانون ۴: هر ۵ دقیقه بررسی می‌شود که آیا سررسید پیگیریِ لیدی فرا رسیده
+    scheduler.add_job(check_due_followups, 'interval', minutes=5)
+
     # قانون ۳: هر ساعت بررسی می‌شود که آیا پرونده‌ای ۳ روز بدون فعالیت مانده
     scheduler.add_job(escalate_stale_leads, 'interval', hours=1)
+
+    # نگهداشت: پاک‌سازی روزانه‌ی نشست‌های تمدیدِ منقضی‌شده (ساعت ۴ صبح تهران)
+    scheduler.add_job(
+        cleanup_expired_refresh_sessions, 'cron', hour=4, minute=0, timezone=jalali.TEHRAN_TZ
+    )
 
     scheduler.start()
     return scheduler

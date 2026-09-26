@@ -15,17 +15,27 @@ def get_notifications(
 ):
     now = datetime.now(timezone.utc)
 
+    # وظایف بازِ سررسیدگذشته — فقط روی پرونده‌های حذف‌نشده. وظیفه‌ی
+    # «canceled» هم دیگر «باز» نیست (پیش از این فقط done مستثنی بود و
+    # شمارشِ خلاصه را باد می‌کرد).
     overdue_tasks = (
-    db.query(Task)
-    .filter(Task.assigned_to_id == current_user.id)
-    .filter(Task.status != "done")
-    .filter(Task.due_at < now)
-    .count()
-)
+        db.query(Task)
+        .join(Lead, Task.lead_id == Lead.id)
+        .filter(Task.assigned_to_id == current_user.id)
+        .filter(Task.status.notin_(["done", "canceled"]))
+        .filter(Task.is_deleted == False)
+        .filter(Lead.is_deleted == False)
+        .filter(Task.due_at < now)
+        .count()
+    )
 
+    # پرونده‌های من — حذف نرم‌شده‌ها نباید در شمارش خلاصه بمانند؛
+    # پیش از این شامل آن‌ها می‌شد و عددِ کارتِ داشبورد با فهرست واقعی
+    # پرونده‌ها نمی‌خواند.
     my_leads = (
         db.query(Lead)
         .filter(Lead.owner_id == current_user.id)
+        .filter(Lead.is_deleted == False)
         .count()
     )
 

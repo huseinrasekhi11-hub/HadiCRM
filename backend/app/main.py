@@ -31,6 +31,7 @@ from app.api.routes.users import router as users_router
 from app.config.settings import settings
 from app.core.logger import app_logger
 from app.middleware.etag import ETagMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.scheduler.jobs import start_scheduler
 
 # ===========================================================
@@ -75,20 +76,11 @@ app.add_middleware(
 # پاسخ ۳۰۴ برای درخواست‌های GET بدون تغییر (به‌ویژه روی موبایل)
 app.add_middleware(ETagMiddleware)
 
-
 # ===========================================================
 # هدرهای امنیتی پایه برای همه‌ی پاسخ‌ها
-# پیش از این هیچ‌کدام تنظیم نمی‌شد؛ به‌ویژه دانلود پیوست‌ها بدون
-# nosniff بود و مرورگر می‌توانست محتوای یک فایل «.txt» را HTML تفسیر کند.
+# (پیاده‌سازی در app/middleware/security_headers.py)
 # ===========================================================
-@app.middleware("http")
-async def _security_headers(request: Request, call_next):
-    response = await call_next(request)
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "no-referrer")
-    response.headers.setdefault("Cache-Control", "no-store")
-    return response
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 # ===========================================================
@@ -149,6 +141,33 @@ def home():
         "status": "Running",
         "version": settings.VERSION,
     }
+
+
+# ===========================================================
+# Healthcheck آگاه از دیتابیس (برای Docker/Compose/orchestrator)
+#
+# پیش از این healthcheck کانتینر به «/» می‌خورد؛ یعنی حتی وقتی
+# PostgreSQL کاملاً down بود، فرایند HTTP پاسخ ۲۰۰ می‌داد و
+# ارکستратор سرویس را «سالم» گزارش می‌کرد در حالی که هیچ درخواست
+# واقعی قابل سرو نبود. حالا یک SELECT 1 واقعی روی دیتابیس اجرا
+# می‌شود و در صورت خرابی، ۵۰۳ برمی‌گردد.
+# ===========================================================
+@app.get("/health")
+def health():
+    from sqlalchemy import text as sa_text
+
+    from app.database.database import engine
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(sa_text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001
+        app_logger.error(f"Healthcheck failed: {exc}")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unhealthy", "database": "down"},
+        )
+    return {"status": "ok", "database": "up", "version": settings.VERSION}
 
 
 # ===========================================================

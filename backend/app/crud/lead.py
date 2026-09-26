@@ -670,6 +670,13 @@ def update_lead_followup(
     current_user: User,
 ):
     lead.next_follow_up = followup_data.next_follow_up
+    # سررسید (جدید یا پاک‌شده) دستی تغییر کرد؛ پرچمِ «قانون ۴» باید
+    # بازنشانی شود تا این سررسید بتواند دوباره یادآوری بسازد. این
+    # مسیر جدا از create_activity است چون ActivityCreate اینجا
+    # next_follow_up را پاس نمی‌دهد (پیام آن را در description تعبیه
+    # می‌کند)، پس منطق بازنشانیِ داخل create_activity این حالت را پوشش
+    # نمی‌دهد.
+    lead.follow_up_notified = False
     create_activity(
         db,
         lead,

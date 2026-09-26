@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (pytest + alembic on PostgreSQL)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: hadiflow
+          POSTGRES_PASSWORD: hadiflow123
+          POSTGRES_DB: hadiflow_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hadiflow"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      SECRET_KEY: ci-only-secret-not-for-production-use-48bytes
+      DATABASE_URL: postgresql+psycopg2://hadiflow:hadiflow123@localhost:5432/hadiflow_test
+      ENABLE_SCHEDULER: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest httpx
+
+      - name: Byte-compile check
+        run: python -m compileall -q app alembic
+
+      - name: Run migrations (fresh database, single head)
+        run: alembic upgrade head
+
+      - name: Seed test admin (suite contract 09120000000)
+        run: python -m app.scripts.seed_admin
+
+      - name: Run backend test suite
+        run: pytest -q
+
+  frontend:
+    name: Frontend (lint + build)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint (oxlint)
+        run: npm run lint
+
+      - name: Build (vite)
+        run: npm run build

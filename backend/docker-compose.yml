@@ -41,6 +41,10 @@ services:
     container_name: hadiflow_api
     restart: always
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    # SECURITY/INGRESS: این پورت HTTP بدون TLS است. در تولید باید پشت
+    # یک reverse proxy با TLS قرار بگیرد (backend/README.md § استقرار).
+    # اگر proxy روی همین میزبان است، bind را محدود کنید:
+    #   ports: - "127.0.0.1:8000:8000"
     ports:
       - "8000:8000"
     depends_on:
@@ -55,7 +59,8 @@ services:
     volumes:
       - uploads_data:/app/uploads
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      # DB-aware: تا وقتی PostgreSQL واقعاً پاسخ ندهد، api سالم حساب نمی‌شود
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 5s
       start_period: 15s

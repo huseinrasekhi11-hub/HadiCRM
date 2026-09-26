@@ -49,8 +49,13 @@ def create_activity(
     # no_followup_reason، و نباید پیگیریِ فعلیِ لید را دست بزنند.
     if activity_data.next_follow_up is not None:
         lead.next_follow_up = activity_data.next_follow_up
+        # سررسید تازه‌ای تنظیم شد؛ اگر سررسید قبلی قبلاً یادآوری کرده
+        # بود، این پرچم باید بازنشانی شود تا «قانون ۴» بتواند دوباره
+        # برای همین لید (با تاریخ جدید) یادآوری بسازد.
+        lead.follow_up_notified = False
     elif activity_data.activity_type in ACTION_TYPES_REQUIRING_FOLLOWUP:
         lead.next_follow_up = None
+        lead.follow_up_notified = False
 
     # ثبت هر اقدام واقعی (نه رویداد سیستمی) یعنی پرونده دیگر «رهاشده» نیست
     if activity_data.activity_type in ACTION_TYPES_REQUIRING_FOLLOWUP:

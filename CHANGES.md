@@ -148,3 +148,71 @@ was confirmed to fail with the fix reverted. Final suite: 162 passed.
 - Access tokens live in `localStorage` (XSS-exposed by design; consider httpOnly cookies).
 - `status_updated_at` is naive Tehran time while everything else is UTC; `days`-window filters in charts/top-products compare it against UTC (≈3.5 h skew). Documented design debt.
 - Docker image build / compose could not be exercised in this sandbox (no Docker daemon).
+
+---
+
+# Audit implementation round — 2026-09-26 (HadiFlow_AUDIT_REPORT.md + Rule 4)
+
+این دور، مواردِ باقی‌مانده‌ی گزارش ممیزی (`HadiFlow_AUDIT_REPORT.md`) و
+فیچر «قانون ۴» (یادآوری سررسید پیگیری، از بسته‌ی fix-notis) را روی
+همین مخزن پیاده‌سازی می‌کند. همه‌ی تغییرات با PostgreSQL واقعی و
+اجرای کامل suite تست‌ها (۱۹۸ تست سبز) و build/lint فرانت‌اند
+(۰ خطا) راستی‌آزمایی شده‌اند.
+
+## امنیت — موارد «NOT FIXED» گزارش که حالا بسته شدند
+
+| سطح | مورد | پیاده‌سازی |
+|---|---|---|
+| HIGH | Refresh-token replay / نبود revocation سمت سرور | جدول `refresh_sessions` (مهاجرت `c9f3a7d1e5b8`) + `app/services/auth_service.py`: هر لاگین یک نشست با `jti` ثبت می‌کند؛ هر `/auth/refresh-token` توکن را **rotate** می‌کند (مصرف توکن قدیم = ابطال + `replaced_by_jti`)؛ استفاده‌ی مجدد از توکن مصرف‌شده **کل خانواده** را باطل می‌کند (reuse detection). اندپوینت جدید `POST /auth/logout` نشست را سمت سرور باطل می‌کند. غیرفعال‌سازی کاربر همه‌ی نشست‌های فعالش را revoke می‌کند. job روزانه‌ی زمان‌بند نشست‌های منقضی را پاک‌سازی می‌کند. فرانت‌اند توکن چرخش‌یافته را ذخیره می‌کند و logout واقعی صدا می‌زند. تست‌ها: `tests/test_refresh_rotation.py` |
+| HIGH | نبود login rate limiting | `app/core/rate_limit.py`: sliding-window درون‌فرایندی — ۵ شکست به ازای هر (IP + شماره‌ی canonical) و ۳۰ شکست به ازای هر IP در پنجره‌ی ۱۵ دقیقه → `429` با `Retry-After`. ورود موفق بودجه‌ی همان حساب را بازمی‌گرداند (نه بودجه‌ی IP را). تنظیمات از `.env` (`LOGIN_*`). محدودیت چندنسخه‌ای در README مستند شد. |
+| MEDIUM | هویت موبایل کاربر نرمال نبود | ستون `users.mobile_normalized` (مهاجرت `d2e6b4a8c1f5` با backfill قطعی + ایندکس یکتا)، همگام‌سازی خودکار با event listener روی insert/update، و lookup هویت در `get_user_by_mobile` اول canonical بعد raw. لاگین با «+98912…» / «۰۹۱۲…» / «0912…» یک کاربر را پیدا می‌کند؛ ساخت حساب دوم با شماره‌ی معادل → ۴۰۰/۴۰۹. |
+| MEDIUM | Scheduler در چند worker تکراری اجرا می‌شد | هر job با `pg_try_advisory_lock` (دکوریتور `@single_instance`) محافظت می‌شود؛ نمونه‌ی دوم همان tick را skip می‌کند. |
+| MEDIUM | Audit-log fail-open بی‌صدا | `create_audit_log` به‌جای `print` با `app_logger.exception` و برچسب `AUDIT LOG WRITE FAILED` ثبت می‌کند (غیرکشنده ولی قابل‌هشدار/مانیتور). |
+| MEDIUM | نبود CI | `.github/workflows/ci.yml`: بک‌اند روی سرویس PostgreSQL ۱۵ (migrate → seed → pytest) + فرانت‌اند (npm ci → oxlint → vite build). |
+| MEDIUM | مرز TLS مستند نبود | بخش «استقرار و مرزهای امنیتی» در `backend/README.md` + کامنت ingress روی پورت ۸۰۰۰ در compose. |
+| MEDIUM | شمارش خلاصه‌ی نوتیفیکیشن کهنه | `get_notifications` حالا لیدهای soft-delete و وظایف canceled را نمی‌شمارد. |
+| MEDIUM | localStorage توکن‌ها | **مهاجرت به کوکی HttpOnly/BFF انجام نشد** (تغییر معماری بزرگ، نیازمند E2E مرورگری)؛ ریسک با rotation + revocation سمت سرور + نبود sink ناامن + همگام‌سازی بین‌تبی کاهش یافت و در README مستند شد. |
+
+## باگ‌فیکس‌های گزارش ممیزی که در این مخزن جا مانده بودند
+
+| مورد | پیاده‌سازی |
+|---|---|
+| HIGH — downgrade بیس‌لاین Alembic می‌توانست جداول تولید را drop کند | `b0c1d2e3f4a5.downgrade()` حالا `RuntimeError` می‌دهد (غیرقابل بازگشتِ عمدی، با راهنمای rollback دستی). |
+| MEDIUM — downgrade مهاجرت فیلدهای کاربر، ستون‌های والد را drop می‌کرد | `e84148be659e.downgrade()` فقط `is_superuser/updated_at/last_login` را برمی‌دارد؛ `created_at/is_active` متعلق به `6ea849d71db2` حفظ می‌شوند (روی DB واقعی تست شد). |
+| MEDIUM — ETag بدون `Vary: Authorization` | پاسخ‌های ETagدارِ احراز هویتی‌شده حالا `Vary: Authorization` می‌گیرند (در هر دو مسیر ۲۰۰ و ۳۰۴، با حفظ Vary قبلی مثل Origin). |
+| MEDIUM — قاطی‌شدن UTC/تهران در چارت‌های میلادی + `date_to` غیرفراگیر | `_daily_sales_gregorian`، `get_sales_by_user` و `get_sales_trend` با کران‌های naive-تهران کار می‌کنند؛ ورودی‌های فقط-تاریخ در مرز API به «روز تقویمی تهران» تفسیر می‌شوند و `date_to` فقط-تاریخ با `inclusive_end=True` کل روز پایان را پوشش می‌دهد (جلالی و میلادی). `+1 day` قبلیِ crud جلالی که به datetime صریح هم یک روز اضافه می‌کرد حذف شد. |
+| MEDIUM — فایل آپلودشده در صورت شکست DB یتیم می‌ماند | خطای `create_attachment()` فایلِ تازه‌نوشته‌شده را پاک می‌کند. |
+| MEDIUM — healthcheck فقط فرایند HTTP را می‌دید | اندپوینت جدید `GET /health` با `SELECT 1` واقعی روی DB (۵۰۳ در خرابی)؛ healthcheckهای Dockerfile و compose به آن سوییچ شدند. |
+| LOW/MEDIUM — ۴۰۳ متمایز برای حساب غیرفعال (enumeration) | ورود حساب غیرفعال هم همان ۴۰۱ عمومی «شماره موبایل یا رمز عبور اشتباه است» را می‌گیرد. |
+| HIGH — دیفالت‌های ناامن تنظیمات | `DEBUG=False` پیش‌فرض؛ `SECRET_KEY` زیر ۳۲ بایت حالا **خطای استارت‌آپ** است (نه warning)؛ `.env.example` به‌روز شد. |
+| LOW — `jdatetime==5.0.0` | به `5.3.0` ارتقا یافت (سازگاری Python 3.13). |
+| LOW — security headers داخل main.py | به میدل‌ور مستقل `app/middleware/security_headers.py` منتقل شد (رفتار یکسان). |
+| INFO — frontend cache/نشست | کش درخواست‌ها epoch-محور شد (نشت داده بین حساب‌ها حتی در raceهای in-flight غیرممکن) + همگام‌سازی احراز هویت بین تب‌ها (رویداد `storage`): logout در یک تب همه‌ی تب‌ها را خارج می‌کند. |
+| — | `frontend/vercel.json` newline انتهایی گرفت. `logo.png` چون اینک در `public/` موجود است، ارجاعات `/logo.png` معتبرند (مورد ۱۲ گزارش دیگر موضوعیت ندارد). |
+
+## فیچر — قانون ۴: یادآوری سررسید پیگیری (از بسته‌ی fix-notis)
+
+هنگام فرارسیدن `next_follow_up` یک لید باز، کارشناس مسئول یک
+نوتیفیکیشن `follow_up_due` می‌گیرد (job هر ۵ دقیقه). پرچم یک‌بارمصرف
+`follow_up_notified` (ستون جدید + مهاجرت `b7c4d9e1a203`) از تکرار
+پیشگیری می‌کند و با تنظیم/پاک‌کردن سررسید توسط کارشناس (در
+`create_activity` و `update_lead_followup`) بازنشانی می‌شود. لیدهای
+بسته/حذف‌شده و مالکان غیرفعال یادآوری نمی‌گیرند. UI: آیکون/برچسب
+«سررسید پیگیری» در NotificationBell و NotificationCenter.
+تست‌ها: `tests/test_followup_due_reminders.py` (۵ تست یکپارچه‌سازی).
+
+نکته‌ی ادغام: بسته‌ی fix-notis روی بیسلاینِ قدیمی‌تر از
+`b7c8d9e0f1a2` ساخته شده بود؛ تغییرات به‌صورت surgical روی کد فعلی
+merge شدند تا فیکس‌های قبلی (BIGINT، ایندکس‌ها، advisory-lock
+لید تکراری، app_logger، تیم فروش ادمین) برگشت نخورند. `down_revision`
+مهاجرت به head فعلی زنجیر شد.
+
+## تست‌های جدید
+
+- `tests/test_refresh_rotation.py` — ۱۱ تست یکپارچه‌سازی (rotation، reuse→family revocation، logout، غیرفعال‌سازی، هویت canonical، rate limit).
+- `tests/test_audit_unit_regressions.py` — ۲۰ تست بدون DB (settings، downgradeها، ETag Vary، security headers، مرزهای داشبورد، rate limiter، گراف مهاجرت‌ها).
+- `tests/test_followup_due_reminders.py` — ۵ تست یکپارچه‌سازی قانون ۴.
+
+وضعیت: **۱۹۸ تست سبز** روی PostgreSQL 15 واقعی (fresh `alembic upgrade head`،
+۱۸ مهاجرت، single head)؛ فرانت‌اند `npm ci && npm run build && npm run lint`
+با ۰ خطا.

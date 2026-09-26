@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { login as apiLogin, getMe, clearRequestCache } from "../api/client";
+import { login as apiLogin, getMe, clearRequestCache, logoutSession } from "../api/client";
 
 const AuthContext = createContext(null);
 
@@ -35,6 +35,31 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener("auth-unauthorized", onUnauthorized);
   }, []);
 
+  // Cross-tab auth synchronization: the `storage` event fires in the OTHER
+  // tabs whenever localStorage changes. Logging out (or being force-logged-
+  // out) in one tab now logs every other tab out too, and logging in as a
+  // different account in one tab re-fetches /me everywhere else — no more
+  // tabs stuck rendering the previous account's identity/cached data.
+  useEffect(() => {
+    const onStorage = (event) => {
+      const authKeys = ["hadiflow_access_token", "hadiflow_refresh_token"];
+      // key === null means localStorage.clear() in another tab
+      if (event.key !== null && !authKeys.includes(event.key)) return;
+      const token = localStorage.getItem("hadiflow_access_token");
+      if (!token) {
+        clearRequestCache();
+        setUser(null);
+        setLoading(false);
+      } else {
+        getMe()
+          .then((me) => setUser(me))
+          .catch(() => setUser(null));
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
   async function login(mobile, password) {
     setError(null);
     const tokens = await apiLogin(mobile, password);
@@ -45,7 +70,11 @@ export function AuthProvider({ children }) {
     return me;
   }
 
-  function logout() {
+  async function logout() {
+    // Real (server-side) logout first: revokes the refresh session so the
+    // token can't be replayed later even if it was copied from this
+    // browser. Best-effort — local state is cleared regardless.
+    await logoutSession();
     localStorage.removeItem("hadiflow_access_token");
     localStorage.removeItem("hadiflow_refresh_token");
     clearRequestCache();

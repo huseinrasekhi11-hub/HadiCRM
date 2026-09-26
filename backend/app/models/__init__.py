@@ -18,3 +18,4 @@ from app.models.lead_submission import LeadSubmission
 from app.models.lead_deletion_audit import LeadDeletionAudit
 from app.models.product import Product
 from app.models.sale_item import SaleItem
+from app.models.refresh_session import RefreshSession

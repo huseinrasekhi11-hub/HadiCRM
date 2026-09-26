@@ -12,6 +12,7 @@ import "./NotificationCenter.css";
 const TYPE_META = {
   no_contact_reminder: { Icon: Clock, tone: "warning" },
   daily_followup_digest: { Icon: Calendar, tone: "primary" },
+  follow_up_due: { Icon: Calendar, tone: "warning" },
   lead_escalated: { Icon: ShieldAlert, tone: "danger" },
   lead_escalated_manager: { Icon: ShieldAlert, tone: "danger" },
   lead_assigned: { Icon: UserPlus, tone: "success" },

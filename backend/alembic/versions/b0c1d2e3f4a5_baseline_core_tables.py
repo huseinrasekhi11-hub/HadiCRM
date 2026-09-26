@@ -209,17 +209,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Reverse only what this baseline created; guard everything so a
-    # create_all-bootstrapped database is unaffected.
-    users_cols = _columns("users") if "users" in _tables() else {}
-    if "permissions" in users_cols:
-        op.drop_column("users", "permissions")
-    if "role" in users_cols:
-        op.drop_column("users", "role")
-    if "mobile" in users_cols:
-        op.drop_column("users", "mobile")
-
-    tables = _tables()
-    for table in ("activities", "tasks", "leads"):
-        if table in tables:
-            op.drop_table(table)
+    # SECURITY/DATA-LOSS GUARD: this baseline is deliberately idempotent —
+    # it may discover that leads/tasks/activities already exist because an
+    # older deployment created them outside Alembic (create_all era). There
+    # is no durable marker telling us whether THIS revision created each
+    # table, so an automated downgrade here could silently drop production
+    # CRM tables full of customer data. The rollback is therefore refused
+    # on purpose; operators must perform a reviewed manual rollback or a
+    # backup restore instead.
+    raise RuntimeError(
+        "Downgrading the b0c1d2e3f4a5 baseline is disabled on purpose: it "
+        "cannot distinguish tables this migration created from pre-existing "
+        "production tables, and dropping them would destroy CRM data. Use a "
+        "reviewed manual rollback or restore from backup instead."
+    )

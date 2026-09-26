@@ -644,7 +644,16 @@ def upload_lead_attachment(
             os.remove(file_path)
         raise
 
-    attachment = create_attachment(db, lead, current_user, display_name, file_path)
+    # فایل همین الان روی دیسک نوشته شد؛ اگر ثبت رکورد DB شکست بخورد،
+    # فایل باید پاک شود وگرنه سند مشتری به‌صورت «یتیم» و غیرقابل‌دسترس
+    # روی دیسک باقی می‌ماند (نه DB آن را می‌شناسد، نه هیچ مسیری به آن
+    # ختم می‌شود).
+    try:
+        attachment = create_attachment(db, lead, current_user, display_name, file_path)
+    except Exception:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise
     create_audit_log(
         db,
         current_user.id,

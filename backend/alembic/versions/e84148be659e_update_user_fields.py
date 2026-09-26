@@ -51,9 +51,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-
+    # Only drop columns THIS revision added (is_superuser, updated_at,
+    # last_login). The previous version also dropped created_at and
+    # is_active, but those belong to the parent revision 6ea849d71db2
+    # (create_users_table) — dropping them here destroyed columns the
+    # parent migration still owns, breaking any further downgrade chain
+    # and silently erasing user activity state.
     op.drop_column("users", "last_login")
     op.drop_column("users", "updated_at")
-    op.drop_column("users", "created_at")
     op.drop_column("users", "is_superuser")
-    op.drop_column("users", "is_active")

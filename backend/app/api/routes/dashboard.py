@@ -9,6 +9,7 @@
   می‌گیرند؛ سایر نقش‌ها داشبورد کارشناسی (محدود به پرونده‌های خودشان).
 """
 from datetime import datetime
+from datetime import timedelta
 from datetime import timezone
 from typing import Literal
 
@@ -17,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
 from app.constants.roles import Roles
+from app.core import jalali
 from app.core.jalali import parse_jalali_date
 from app.crud.dashboard import (
     get_conversion_stats,
@@ -61,25 +63,43 @@ CHART_PERMISSIONS = [
 CalendarChoice = Literal["jalali", "gregorian"]
 
 
-def _parse_datetime_bound(value: str | None) -> datetime | None:
+def _parse_datetime_bound(
+    value: str | None,
+    inclusive_end: bool = False,
+) -> datetime | None:
     """
     پارس کران‌های زمانی با پشتیبانی دوگانه:
       * میلادی: 2026-08-01 یا 2026-08-01T10:30:00
       * جلالی:  1405/05/10 یا 1405-05-10 (اختیاری با ساعت 1405/05/10 15:30)
+
+    ورودی‌های «فقط-تاریخ» به‌عنوان روز تقویمیِ تهران تفسیر می‌شوند
+    (ستون تحلیلی status_updated_at naive و به وقت تهران ذخیره می‌شود).
+    با inclusive_end=True کرانِ پایان به نیمه‌شبِ «روز بعد» منتقل می‌شود
+    تا date_to فقط-تاریخ، کلِ روزِ پایان را فراگیر پوشش دهد؛ پیش از این
+    نیمه‌شبِ همان روز مرزِ «کوچک‌تر» بود و کل روزِ درخواستی کاربر از
+    نمودار حذف می‌شد. datetime با ساعتِ صریح دقیقاً همان‌جا برش می‌خورد.
     """
     if not value:
         return None
 
+    text = value.strip()
+    date_only = "T" not in text and " " not in text
+
     try:
-        parsed = datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(text)
         if parsed.tzinfo is None:
+            if date_only:
+                # روز تقویمی تهران: نیمه‌شبِ تهران، نه نیمه‌شبِ UTC
+                if inclusive_end:
+                    parsed = parsed + timedelta(days=1)
+                return jalali.TEHRAN_TZ.localize(parsed).astimezone(timezone.utc)
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed
     except ValueError:
         pass
 
     try:
-        return parse_jalali_date(value)
+        parsed = parse_jalali_date(text)
     except ValueError:
         raise HTTPException(
             status_code=400,
@@ -88,6 +108,10 @@ def _parse_datetime_bound(value: str | None) -> datetime | None:
                 "Use ISO format (2026-08-01) or Jalali format (1405/05/10)."
             ),
         )
+    # parse_jalali_date خروجی UTC-aware بر مبنای نیمه‌شب تهران می‌دهد
+    if inclusive_end and date_only:
+        parsed = parsed + timedelta(days=1)
+    return parsed
 
 
 @router.get("/")
@@ -128,7 +152,7 @@ def chart_daily_sales(
         days=days,
         calendar=calendar,
         date_from=_parse_datetime_bound(date_from),
-        date_to=_parse_datetime_bound(date_to),
+        date_to=_parse_datetime_bound(date_to, inclusive_end=True),
     )
 
 

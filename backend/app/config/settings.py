@@ -14,8 +14,6 @@ HadiFlow
 ===========================================================
 """
 
-import warnings
-
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -32,7 +30,10 @@ class Settings(BaseSettings):
 
     VERSION: str = "0.1.0"
 
-    DEBUG: bool = True
+    # SECURITY: پیش‌فرض امن (False). در توسعه به‌صراحت در .env
+    # DEBUG=true گذاشته شود؛ فراموش‌کردن آن در استقرار دیگر باعث
+    # روشن‌ماندن حالت debug نمی‌شود.
+    DEBUG: bool = False
 
     SECRET_KEY: str
 
@@ -65,17 +66,25 @@ class Settings(BaseSettings):
     # -----------------------------------------
     ENABLE_SCHEDULER: bool = True
 
+    # -----------------------------------------
+    # محدودسازی نرخ ورود (brute-force control)
+    # پنجره‌ی لغزنده؛ جزئیات در app/core/rate_limit.py
+    # -----------------------------------------
+    LOGIN_RATE_WINDOW_SECONDS: int = 900
+    LOGIN_MAX_FAILURES_PER_ACCOUNT: int = 5
+    LOGIN_MAX_FAILURES_PER_IP: int = 30
+
     @field_validator("SECRET_KEY")
     @classmethod
-    def warn_weak_secret_key(cls, v: str) -> str:
-        # Non-fatal on purpose: crashing existing deployments on upgrade
-        # would be worse than warning. HS256 keys below 32 bytes violate
-        # RFC 7518 guidance and are far easier to brute-force.
+    def require_strong_secret_key(cls, v: str) -> str:
+        # SECURITY: پیش از این فقط warning داده می‌شد؛ یعنی استقرار می‌توانست
+        # با کلید ضعیف بالا بیاید و کسی متوجه نشود. کلید HS256 کوتاه‌تر از
+        # ۳۲ بایت طبق RFC 7518 نامعتبر است و brute-force آن آسان است.
+        # حالا برنامه با کلید ضعیف اصلاً استارت نمی‌شود (fail fast).
         if len(v.encode("utf-8")) < 32:
-            warnings.warn(
-                "SECRET_KEY is shorter than 32 bytes; generate one with: "
-                "python -c \"import secrets; print(secrets.token_urlsafe(64))\"",
-                stacklevel=2,
+            raise ValueError(
+                "SECRET_KEY must be at least 32 UTF-8 bytes; generate one with: "
+                'python -c "import secrets; print(secrets.token_urlsafe(64))"'
             )
         return v
 

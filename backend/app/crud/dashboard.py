@@ -305,10 +305,13 @@ def _daily_sales_jalali(db, days, date_from, date_to):
                 Lead.status_updated_at >= jalali.naive_tehran_from_utc(date_from)
             )
         if date_to is not None:
-            # date_to به‌صورت فراگیر (تا پایان همان روز) تفسیر می‌شود
+            # کران پایان «دقیق» است: فراگیریِ ورودی‌های فقط-تاریخ
+            # (یک روز کامل) در مرز API انجام می‌شود
+            # (_parse_datetime_bound با inclusive_end=True)، نه اینجا —
+            # چون افزودن یک روز کامل به یک datetime صریحِ با ساعتِ مشخص،
+            # ۲۴ ساعت اضافه بر بازه‌ی درخواستی کاربر شامل می‌شد.
             query = query.filter(
-                Lead.status_updated_at
-                < jalali.naive_tehran_from_utc(date_to) + timedelta(days=1)
+                Lead.status_updated_at < jalali.naive_tehran_from_utc(date_to)
             )
     else:
         today_naive = jalali.naive_tehran_now()
@@ -351,7 +354,11 @@ def _daily_sales_jalali(db, days, date_from, date_to):
 def _daily_sales_gregorian(db, days, date_from, date_to):
     """رفتار میلادی (پیش‌فرض) — با پشتیبانی بازه‌ی اختیاری."""
     if date_from is None and date_to is None:
-        now = datetime.now(timezone.utc)
+        # ستون status_updated_at به‌صورت naive و به وقت تهران ذخیره می‌شود؛
+        # کران «امروز» هم باید روز تقویمی تهران باشد، نه UTC. پیش از این
+        # نیمه‌شبِ UTC مبنا بود و ~۳٫۵ ساعت از هر شبانه‌روزِ تهران در
+        # برچسب روز اشتباه می‌افتاد.
+        now = jalali.naive_tehran_now()
         start = (now - timedelta(days=days - 1)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
@@ -384,12 +391,20 @@ def _daily_sales_gregorian(db, days, date_from, date_to):
             result.append({"label": day_label, "amount": amount, "count": count})
         return result
 
-    # حالت بازه‌ی صریح: بدون صفرگذاری، فقط سطل‌های موجود
+    # حالت بازه‌ی صریح: بدون صفرگذاری، فقط سطل‌های موجود.
+    # کران‌های ورودی UTC-aware هستند (تبدیل در مرز API)؛ چون ستون
+    # naive و به وقت تهران است، مقایسه‌ی مستقیم با aware مرزها را به
+    # اندازه‌ی اختلاف منطقه‌زمانی جابه‌جا می‌کرد — پس ابتدا به naiveِ
+    # تهران تبدیل می‌شوند. فراگیریِ ورودی فقط-تاریخ در مرز API انجام شده.
     query = _won_sale_rows(db)
     if date_from is not None:
-        query = query.filter(Lead.status_updated_at >= date_from)
+        query = query.filter(
+            Lead.status_updated_at >= jalali.naive_tehran_from_utc(date_from)
+        )
     if date_to is not None:
-        query = query.filter(Lead.status_updated_at < date_to)
+        query = query.filter(
+            Lead.status_updated_at < jalali.naive_tehran_from_utc(date_to)
+        )
 
     rows = (
         query.with_entities(
@@ -414,7 +429,9 @@ def _daily_sales_gregorian(db, days, date_from, date_to):
 def get_sales_by_user(db: Session, days: int | None = None):
     cutoff = None
     if days is not None:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        # status_updated_at naive و به وقت تهران است؛ cutoff هم باید
+        # همان مبنا باشد (نه UTC-aware).
+        cutoff = jalali.naive_tehran_now() - timedelta(days=days)
 
     filters = [
         Lead.is_deleted == False,
@@ -650,7 +667,10 @@ def get_sales_trend(
         return _sales_trend_jalali(db, days, granularity)
 
     unit = granularity if granularity in ("day", "week", "month") else "day"
-    start = datetime.now(timezone.utc) - timedelta(days=days)
+    # date_trunc روی ستون naive تهران، سطل‌های روز/هفته/ماه تهران می‌سازد؛
+    # کران پنجره هم باید با همان مبنا باشد (پیش از این cutoff آگاهِ UTC با
+    # ستون naive مقایسه می‌شد).
+    start = jalali.naive_tehran_now() - timedelta(days=days)
 
     period = func.date_trunc(unit, Lead.status_updated_at).label("period")
 
