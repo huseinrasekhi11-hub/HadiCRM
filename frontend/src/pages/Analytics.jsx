@@ -19,9 +19,9 @@ import {
 import "./Analytics.css";
 
 /* ---------- Panel wrapper (same convention as Dashboard.jsx) ---------- */
-function Panel({ title, icon: Icon, subtitle, actions, children, wide }) {
+function Panel({ title, icon: Icon, subtitle, actions, children, wide, allowOverflow }) {
   return (
-    <section className={`dash-panel ${wide ? "dash-panel--wide" : ""}`}>
+    <section className={`dash-panel ${wide ? "dash-panel--wide" : ""} ${allowOverflow ? "dash-panel--allow-overflow" : ""}`}>
       <div className="dash-panel__header">
         <div className="dash-panel__title">
           {Icon && <Icon size={15} className="dash-panel__title-icon" />}
@@ -132,9 +132,6 @@ export default function Analytics() {
             <BarChart3 size={20} />
             <h1>تحلیل‌ها و نمودارهای فروش</h1>
           </div>
-          <p className="analytics-header__subtitle">
-            فروش روزانه، عملکرد کارشناسان، نرخ تبدیل، پرفروش‌ترین کالاها و ارجاع‌ها — بر پایه تقویم شمسی. آمار زیر فقط کارشناسان فروش را شامل می‌شود و نقش‌های مدیریتی در آن لحاظ نمی‌شوند.
-          </p>
         </header>
 
         {error && <div className="alert-banner alert-banner--error">{error}</div>}
@@ -149,7 +146,9 @@ export default function Analytics() {
 
         {!loading && !error && (
           <>
-            <Panel title="فروش روزانه" icon={CalendarRange} subtitle="۳۰ روز گذشته (ریال)" wide>
+            {/* The panel body is overflow:hidden (rounded corners), which used
+                to clip the tooltip of a point near either edge. */}
+            <Panel title="فروش روزانه" icon={CalendarRange} subtitle="۳۰ روز گذشته (ریال)" wide allowOverflow>
               <AreaChart data={charts.dailySales} valueKey="amount" fmt={fmtCompactRial} color="var(--color-primary)" />
             </Panel>
 
@@ -158,6 +157,7 @@ export default function Analytics() {
               icon={TrendingUp}
               subtitle="۹۰ روز گذشته"
               wide
+              allowOverflow
               actions={
                 <div className="seg">
                   {[["day", "روز"], ["week", "هفته"], ["month", "ماه"]].map(([v, l]) => (

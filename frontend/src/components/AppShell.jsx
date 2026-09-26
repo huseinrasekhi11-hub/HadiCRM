@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutGrid, Users, ListChecks, LogOut, Bell,
-  ChevronLeft, ChevronRight, BarChart3, Trash2,
+  ChevronLeft, ChevronRight, BarChart3, Trash2, MoreHorizontal, X,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useNotifications } from "../context/NotificationsContext";
@@ -31,6 +31,18 @@ function buildDesktopNav(isAdmin) {
 const EXTRA_CRUMBS = [
   { match: (p) => p.startsWith("/leads/"), label: "پروندهٔ مشتری" },
   { match: (p) => p.startsWith("/notifications"), label: "اعلان‌ها" },
+  { match: (p) => p.startsWith("/analytics"), label: "تحلیل‌ها" },
+  { match: (p) => p.startsWith("/deleted"), label: "حذف‌شده‌ها" },
+];
+
+/*
+ * Admin-only destinations that have no room in the five-slot bottom bar.
+ * On desktop they live in the sidebar rail; on mobile they are reachable
+ * from the «بیشتر» sheet in the header, so nothing is lost without the rail.
+ */
+const MOBILE_MORE_LINKS = [
+  { to: "/analytics", label: "تحلیل‌ها", Icon: BarChart3 },
+  { to: "/deleted", label: "حذف‌شده‌ها", Icon: Trash2 },
 ];
 
 function initials(name) {
@@ -50,8 +62,21 @@ export default function AppShell({ children }) {
   const [isCollapsed, setIsCollapsed] = useState(
     () => localStorage.getItem("hadiflow_sidebar_collapsed") === "true"
   );
+  /* The mobile «بیشتر» sheet (admin-only destinations). */
+  const [moreOpen, setMoreOpen] = useState(false);
   const { unreadCount: unread } = useNotifications();
   const navItems = buildDesktopNav(isAdmin);
+
+  /* Close the sheet whenever the route changes — tapping a link should land
+   * on the page with the menu out of the way. */
+  useEffect(() => { setMoreOpen(false); }, [location.pathname]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onKey = (e) => { if (e.key === "Escape") setMoreOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [moreOpen]);
 
   useEffect(() => {
     localStorage.setItem("hadiflow_sidebar_collapsed", isCollapsed);
@@ -151,12 +176,50 @@ export default function AppShell({ children }) {
           <img src="/logo.png" alt="" className="mobile-header__logo" />
         </a>
         <div className="mobile-header__actions">
+          {isAdmin && (
+            <button
+              className={`mobile-more-btn ${moreOpen ? "mobile-more-btn--open" : ""}`}
+              onClick={() => setMoreOpen((v) => !v)}
+              aria-label="سایر بخش‌ها"
+              aria-expanded={moreOpen}
+              aria-controls="mobile-more-sheet"
+            >
+              <MoreHorizontal size={18} strokeWidth={2} />
+            </button>
+          )}
           <ThemeToggle />
           <button className="mobile-logout-btn" onClick={logout} aria-label="خروج از حساب">
             <LogOut size={18} strokeWidth={2} />
           </button>
         </div>
       </header>
+
+      {/* --- Mobile «بیشتر» sheet: the admin pages that have no slot in the
+          bottom bar (the desktop rail is hidden below 800px). --- */}
+      {isAdmin && moreOpen && (
+        <>
+          <div className="mobile-more-backdrop" onClick={() => setMoreOpen(false)} aria-hidden="true" />
+          <div className="mobile-more-sheet" id="mobile-more-sheet" role="menu" aria-label="سایر بخش‌ها">
+            <div className="mobile-more-sheet__head">
+              <span>بخش‌های مدیریتی</span>
+              <button className="mobile-more-sheet__close" onClick={() => setMoreOpen(false)} aria-label="بستن منو">
+                <X size={16} strokeWidth={2} />
+              </button>
+            </div>
+            {MOBILE_MORE_LINKS.map(({ to, label, Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                role="menuitem"
+                className={({ isActive }) => `mobile-more-link ${isActive ? "mobile-more-link--active" : ""}`}
+              >
+                <span className="mobile-more-link__icon"><Icon size={18} strokeWidth={2} /></span>
+                <span>{label}</span>
+              </NavLink>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* --- Mobile bottom nav --- */}
       <nav className="mobile-bottom-nav" aria-label="ناوبری پایین">

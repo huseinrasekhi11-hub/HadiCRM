@@ -39,6 +39,16 @@
   max-width: 64ch;
   line-height: var(--leading-normal);
 }
+
+/* --- Chart panels ---
+   .dash-panel and its body are overflow:hidden so the header keeps its
+   rounded corners. That clipped the tooltip of a point near either end of a
+   time series, showing only half of it. The AreaChart already clamps the
+   tooltip inside its own box, but the panel padding (16px) is narrower than
+   the tooltip's half-width, so for these two panels let the box paint over
+   the padding instead — the section itself no longer clips vertically. */
+.dash-panel--allow-overflow { overflow: visible; }
+.dash-panel--allow-overflow > .dash-panel__body { overflow: visible; }
 .analytics-header__controls { display: flex; justify-content: flex-start; flex-wrap: wrap; gap: var(--space-2); }
 
 /* --- Segmented control --- */

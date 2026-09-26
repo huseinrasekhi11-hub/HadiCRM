@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import "./Charts.css";
 
 /* ---------- Number formatting (Persian) ---------- */
@@ -32,6 +32,23 @@ export function AreaChart({
   fmt = fmtCompactRial,
 }) {
   const [hover, setHover] = useState(null);
+  /* Rendered width of the chart, in CSS px — needed to clamp the tooltip
+   * (see below). The SVG scales, so viewBox units alone are not enough. */
+  const wrapRef = useRef(null);
+  const [wrapW, setWrapW] = useState(0);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const measure = () => setWrapW(el.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   if (!data || data.length === 0) return <EmptyChart />;
 
   const w = 640;
@@ -57,13 +74,26 @@ export function AreaChart({
   // Show ~5 evenly spaced x labels to avoid crowding
   const labelEvery = Math.max(1, Math.ceil(data.length / 5));
   const active = hover != null ? points[hover] : null;
+  /*
+   * The tooltip is centred on the hovered point, so at either end of the
+   * series half of it would spill outside the panel and get clipped. Clamp
+   * its centre to the middle band of the chart: the box then always fits
+   * inside the plot, and the dashed guide line still marks the exact point.
+   */
+  const TOOLTIP_HALF_PX = 95; // generous half-width, keeps «۱٫۲ میلیارد ریال» inside
+  const rawPct = active ? (active.x / w) * 100 : 0;
+  const edgePct = wrapW > 0 ? ((TOOLTIP_HALF_PX + 4) / wrapW) * 100 : 0;
+  const clampedPct =
+    active && edgePct < 50
+      ? Math.min(100 - edgePct, Math.max(edgePct, rawPct))
+      : rawPct;
 
   return (
-    <div className="chart-wrap" dir="ltr">
+    <div className="chart-wrap" dir="ltr" ref={wrapRef}>
       {active && (
         <div
           className="chart-tooltip"
-          style={{ left: `${(active.x / w) * 100}%` }}
+          style={{ left: `${clampedPct}%` }}
         >
           <span className="chart-tooltip__label">{active.d.label}</span>
           <span className="chart-tooltip__value">{fmt(active.d[valueKey])}</span>
