@@ -32,7 +32,10 @@
 .font-mono-ltr {
   direction: ltr;
   unicode-bidi: isolate;
-  text-align: right;
+  /* `start` instead of `right`: these islands sit next to leading icons that
+     are anchored to the inline-start edge, and right-alignment made typed
+     values collide with them. */
+  text-align: start;
   font-variant-numeric: tabular-nums;
 }
 
