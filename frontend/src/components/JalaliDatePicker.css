@@ -1,0 +1,251 @@
+/* ==========================================================================
+   Shamsi date picker
+   --------------------------------------------------------------------------
+   Replaces the native date inputs, which render a Gregorian calendar the
+   browser will not localise. The grid runs Saturday-first, Friday is marked
+   as the weekend, and the trigger always carries a «شمسی» tag so the reader
+   never has to guess which calendar a number belongs to.
+   ========================================================================== */
+
+.jdp { position: relative; width: 100%; }
+
+/* --- Trigger --- */
+.jdp__trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 40px;
+  padding: 9px var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  text-align: start;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard);
+}
+.jdp__trigger:hover:not(:disabled) { border-color: var(--border-strong); }
+.jdp__trigger--open {
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+.jdp__trigger:disabled { background: var(--bg-sunken); color: var(--text-tertiary); cursor: not-allowed; }
+.jdp__trigger--empty .jdp__trigger-value { color: var(--text-tertiary); }
+
+.jdp__trigger-icon { color: var(--text-tertiary); flex-shrink: 0; }
+.jdp__trigger--open .jdp__trigger-icon { color: var(--color-primary); }
+.jdp__trigger-value {
+  flex: 1;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.jdp__badge {
+  flex-shrink: 0;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  color: var(--color-primary);
+  background: var(--color-primary-bg);
+  border: 1px solid var(--color-primary-border);
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  line-height: 1.6;
+}
+
+.jdp__clear {
+  display: grid;
+  place-items: center;
+  width: 20px; height: 20px;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.jdp__clear:hover { background: var(--bg-surface-active); color: var(--color-danger); }
+
+/* --- Panel --- */
+.jdp__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  inset-inline-start: 0;
+  z-index: var(--z-popover);
+  width: 288px;
+  max-width: calc(100vw - 32px);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  padding: var(--space-3);
+  animation: popIn var(--duration-fast) var(--ease-out) both;
+}
+
+.jdp__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.jdp__nav {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard);
+}
+.jdp__nav:hover { background: var(--bg-surface-hover); color: var(--text-primary); border-color: var(--border-base); }
+
+.jdp__title { display: flex; align-items: baseline; gap: 6px; }
+.jdp__title-month { font-size: var(--text-md); font-weight: 700; color: var(--text-primary); }
+.jdp__title-year {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.jdp__weekdays, .jdp__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.jdp__weekday {
+  text-align: center;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  color: var(--text-tertiary);
+  padding: var(--space-1) 0;
+}
+.jdp__weekday--holiday { color: var(--color-danger); }
+
+.jdp__cell {
+  aspect-ratio: 1;
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--text-base);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard);
+}
+.jdp__cell:hover { background: var(--bg-surface-hover); }
+.jdp__cell--empty { cursor: default; }
+.jdp__cell--holiday { color: var(--color-danger); }
+/* Today is outlined, the selection is filled — so both can be seen at once. */
+.jdp__cell--today { border-color: var(--color-primary); color: var(--color-primary); }
+.jdp__cell--selected,
+.jdp__cell--selected.jdp__cell--today,
+.jdp__cell--selected.jdp__cell--holiday {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--text-on-primary);
+}
+
+/* --- Time row --- */
+.jdp__time {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+.jdp__time-icon { color: var(--text-tertiary); }
+.jdp__time-label { font-size: var(--text-sm); font-weight: 600; color: var(--text-secondary); }
+.jdp__time-fields {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: auto;
+  direction: ltr;
+}
+.jdp__time-select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 34px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  font-family: inherit;
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  text-align: center;
+  cursor: pointer;
+}
+.jdp__time-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+.jdp__time-sep { font-weight: 700; color: var(--text-tertiary); }
+
+/* --- Footer --- */
+.jdp__footer {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+.jdp__footer-btn {
+  flex: 1;
+  min-height: 36px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-base);
+  background: var(--bg-surface);
+  font-family: inherit;
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard);
+}
+.jdp__footer-btn:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
+.jdp__footer-btn--primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--text-on-primary);
+}
+.jdp__footer-btn--primary:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--text-on-primary);
+}
+
+/* --- Mobile ---------------------------------------------------------------
+   A 288px popover anchored to a field near the bottom of a phone screen ends
+   up under the keyboard. Below 560px the panel becomes a centred sheet.
+   -------------------------------------------------------------------------- */
+@media (max-width: 560px) {
+  .jdp__panel {
+    position: fixed;
+    inset-inline: var(--space-4);
+    top: 50%;
+    transform: translateY(-50%);
+    width: auto;
+    max-width: none;
+    padding: var(--space-4);
+    box-shadow: var(--shadow-xl), 0 0 0 100vmax var(--bg-overlay);
+  }
+  .jdp__cell { min-height: 40px; }
+  .jdp__footer-btn { min-height: 44px; }
+}

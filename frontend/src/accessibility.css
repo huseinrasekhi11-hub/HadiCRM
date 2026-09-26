@@ -1,0 +1,106 @@
+/* ==========================================================================
+   HadiFlow — Accessibility
+   ========================================================================== */
+
+/* --- Focus ------------------------------------------------------------ */
+/* Mouse users never see a ring; keyboard users always do, at a contrast
+   that survives both themes. */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+/* On a filled control the ring needs separation from the fill itself. */
+.btn-primary:focus-visible, .chip--active:focus-visible, .quick-fab:focus-visible {
+  outline-offset: 3px;
+}
+
+/* --- Screen-reader only ------------------------------------------------ */
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Skip link --------------------------------------------------------- */
+.skip-link {
+  position: fixed;
+  top: var(--space-2);
+  inset-inline-start: var(--space-2);
+  z-index: 1000;
+  background: var(--color-primary);
+  color: var(--text-on-primary);
+  padding: 10px var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 600;
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-160%);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.skip-link:focus-visible { transform: translateY(0); }
+
+/* --- Touch targets ------------------------------------------------------
+   The previous rule applied `min-height: 44px; min-width: 44px` to every
+   `a` and `button` on mobile. That is correct for controls and wrong for
+   inline text links, which it forced into 44px-tall blocks mid-sentence,
+   and for small inline badges, which it stretched into pills. Targets are
+   enforced on things that behave like controls instead.
+   ------------------------------------------------------------------------ */
+@media (pointer: coarse) {
+  .btn-primary, .btn-secondary, .btn-ghost, .btn-danger,
+  .btn-accent, .btn-success, .btn-icon, .theme-toggle-btn,
+  .chip, .lead-action, .today-action, .row-action,
+  .mobile-nav-item, .action-icon-btn, .notif-trigger,
+  .followup-btn, .loss-chip, .action-chip, .move-stage-item {
+    min-height: 44px;
+  }
+  .btn-icon, .theme-toggle-btn, .lead-action, .today-action,
+  .row-action, .notif-trigger, .action-icon-btn {
+    min-width: 44px;
+  }
+  /* Small checkboxes stay visually small but gain an invisible halo so the
+     tap target is forgiving without the control looking oversized. */
+  .task-row__check, .today-task-check, .ws-task-check, .checkbox {
+    position: relative;
+  }
+  .task-row__check::after, .today-task-check::after,
+  .ws-task-check::after, .checkbox::after {
+    content: "";
+    position: absolute;
+    inset: 50% auto auto 50%;
+    width: 44px; height: 44px;
+    transform: translate(50%, -50%);
+  }
+}
+
+/* --- High contrast preference ------------------------------------------ */
+@media (prefers-contrast: more) {
+  :root, .dark {
+    --border-base: var(--border-strong);
+    --text-secondary: var(--text-primary);
+  }
+  .card, .list-row, .modal { border-width: 1.5px; }
+}
+
+/* --- Reduced motion ----------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .health-badge__ping, .notif-trigger--has-unread .notif-trigger__icon {
+    animation: none !important;
+  }
+}
+
+/* --- Forced colors (Windows high contrast) ------------------------------ */
+@media (forced-colors: active) {
+  .btn-primary, .btn-secondary, .chip, .card, .list-row, .modal {
+    border: 1px solid ButtonBorder;
+  }
+  .spine, .lead-card__bar, .today-row__bar, .fu-row__bar { forced-color-adjust: none; }
+}

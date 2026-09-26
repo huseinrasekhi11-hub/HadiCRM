@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+
+    <!--
+      viewport-fit=cover lets the layout paint under the notch and the home
+      indicator; the safe-area insets in the CSS then keep content clear of
+      both. Without it the bottom nav floats above a white band on iPhone.
+      user-scalable is left enabled — disabling pinch zoom on a CRM that
+      shows small phone numbers is an accessibility failure, and the 16px
+      input sizing already removes the unwanted auto-zoom on focus.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <meta name="description" content="HadiFlow — سامانه مدیریت فروش و ارتباط با مشتریان" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="HadiFlow" />
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- Tints the browser chrome to match the app surface in each theme. -->
+    <meta name="theme-color" content="#f6f8f9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0c1216" media="(prefers-color-scheme: dark)" />
+
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+
+    <title>HadiFlow — پنل مدیریت</title>
+
+    <script>
+      /*
+       * Applies the saved theme before first paint. React sets the same class
+       * from ThemeContext, but that runs after hydration — which meant a dark
+       * mode user saw a white flash on every page load.
+       */
+      (function () {
+        try {
+          var saved = localStorage.getItem("hadiflow_theme");
+          var dark = saved
+            ? saved === "dark"
+            : window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (dark) {
+            document.documentElement.classList.add("dark");
+            var meta = document.querySelector('meta[name="theme-color"]:not([media])');
+            if (!meta) {
+              meta = document.createElement("meta");
+              meta.name = "theme-color";
+              document.head.appendChild(meta);
+            }
+            meta.content = "#0c1216";
+          }
+        } catch (e) {
+          /* private mode blocks localStorage; the default light theme is fine */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <div style="padding:32px;text-align:center;font-family:system-ui;direction:rtl">
+        برای استفاده از HadiFlow، جاوااسکریپت را در مرورگر خود فعال کنید.
+      </div>
+    </noscript>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

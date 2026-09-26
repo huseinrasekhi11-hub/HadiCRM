@@ -1,0 +1,219 @@
+/* ==========================================================================
+   Login
+   --------------------------------------------------------------------------
+   The brand panel is the one place in the product that gets a deliberate
+   visual gesture, because it is the only screen with room to spare. The
+   motif is a pressure/temperature gauge sweep: a thin arc of the cold-to-hot
+   ramp behind the mark. It is drawn with tokens, so it inverts correctly
+   instead of the previous build's hardcoded white panel, which turned into
+   a glaring white slab in dark mode.
+   ========================================================================== */
+
+.login-layout {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  background: var(--bg-app);
+}
+
+.login-theme-toggle {
+  position: absolute;
+  top: calc(var(--space-5) + env(safe-area-inset-top, 0px));
+  inset-inline-end: var(--space-5);
+  z-index: 10;
+}
+
+/* ==========================================================================
+   BRAND PANEL
+   ========================================================================== */
+.login-brand-panel {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border-inline-end: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: var(--space-12) var(--space-8);
+  color: var(--text-primary);
+}
+
+.login-brand-panel__bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    radial-gradient(circle at 24% 26%, color-mix(in srgb, var(--refrigerant-400) 16%, transparent) 0%, transparent 46%),
+    radial-gradient(circle at 78% 76%, color-mix(in srgb, var(--copper-400) 11%, transparent) 0%, transparent 44%);
+}
+
+/* A faint duct-line grid — the closest honest reference to the trade, and
+   quiet enough to sit behind type. */
+.login-brand-panel__bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--text-primary) 4%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--text-primary) 4%, transparent) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: radial-gradient(ellipse at center, #000 20%, transparent 72%);
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 20%, transparent 72%);
+}
+
+.login-brand-panel__content {
+  position: relative;
+  z-index: 1;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.login-logo-wrapper {
+  position: relative;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-5) var(--space-8);
+  border-radius: var(--radius-2xl);
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: var(--space-8);
+}
+
+/* The gauge sweep: cold on one end, hot on the other. This is the single
+   place a gradient is allowed, because here it is the identity. */
+.login-logo-wrapper::after {
+  content: '';
+  position: absolute;
+  inset-inline: var(--space-6);
+  bottom: -1px;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    to left,
+    var(--refrigerant-400),
+    var(--refrigerant-300) 30%,
+    var(--copper-300) 70%,
+    var(--copper-500)
+  );
+}
+
+.login-logo { height: 52px; width: auto; }
+
+.login-tagline {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  line-height: 1.7;
+  margin: 0 0 var(--space-8);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+  max-width: 22ch;
+}
+
+.login-features { display: flex; flex-direction: column; gap: var(--space-3); align-items: center; }
+.login-feature-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  font-weight: 600;
+  background: var(--bg-surface);
+  padding: 9px var(--space-5);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-base);
+  box-shadow: var(--shadow-xs);
+}
+
+/* ==========================================================================
+   FORM PANEL
+   ========================================================================== */
+.login-form-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8) var(--space-6);
+  background: var(--bg-app);
+}
+
+.login-form-container { width: 100%; max-width: 372px; }
+
+.login-header { margin-bottom: var(--space-8); text-align: center; }
+
+/* Shown only on phones, where the brand panel is hidden. Without it the
+   form floats with no identity at all above the fold. */
+.login-header__mark { display: none; }
+
+.login-title {
+  font-size: var(--text-3xl);
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2);
+  letter-spacing: var(--tracking-tight);
+}
+.login-subtitle {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  margin: 0 auto;
+  max-width: 34ch;
+  line-height: var(--leading-snug);
+}
+
+.premium-form { display: flex; flex-direction: column; gap: var(--space-5); }
+.premium-form .form-group { margin-bottom: 0; }
+
+/* The login inputs are taller than the app's standard field: this is the
+   one form a user fills with cold hands, often outdoors. */
+.login-form-panel .premium-input {
+  min-height: 48px;
+  padding: 13px var(--space-4);
+  font-size: var(--text-lg);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+.login-form-panel .premium-input--with-icon { padding-inline-start: 46px; }
+.login-form-panel .input-icon { inset-inline-start: 15px; }
+
+.login-form-panel .form-error-banner { text-align: center; margin-bottom: 0; }
+
+/* ==========================================================================
+   RESPONSIVE
+   ========================================================================== */
+@media (max-width: 900px) {
+  .login-layout { grid-template-columns: 1fr; }
+  .login-brand-panel { display: none; }
+
+  .login-form-panel {
+    align-items: flex-start;
+    padding: calc(var(--space-12) + env(safe-area-inset-top, 0px)) var(--space-5) var(--space-8);
+  }
+  .login-theme-toggle { top: calc(var(--space-4) + env(safe-area-inset-top, 0px)); inset-inline-end: var(--space-4); }
+
+  .login-header__mark {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-4);
+    margin-bottom: var(--space-6);
+  }
+  .login-header__logo { height: 42px; width: auto; }
+  .login-header__rule {
+    width: 84px; height: 2px;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(to left, var(--refrigerant-400), var(--copper-400));
+  }
+  .login-title { font-size: var(--text-2xl); }
+}
+
+@media (max-height: 620px) and (max-width: 900px) {
+  .login-form-panel { padding-top: var(--space-6); }
+  .login-header { margin-bottom: var(--space-5); }
+  .login-header__mark { margin-bottom: var(--space-4); }
+}

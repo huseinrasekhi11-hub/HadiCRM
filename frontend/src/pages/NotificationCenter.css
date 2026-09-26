@@ -1,0 +1,109 @@
+/* ==========================================================================
+   Notification centre — the full-page feed
+   Unread items carry a tint and a dot rather than only bold text, since on a
+   phone in daylight weight alone is hard to read.
+   ========================================================================== */
+
+.notif-center {
+  max-width: 740px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.notif-center__header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.notif-center__title {
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  margin: 0;
+  letter-spacing: var(--tracking-tight);
+}
+.notif-center__skeleton { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.notif-center__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 64px var(--space-6);
+  text-align: center;
+  color: var(--text-tertiary);
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-base);
+  border-radius: var(--radius-xl);
+}
+.notif-center__empty p { margin: 0; font-size: var(--text-md); color: var(--text-secondary); }
+
+.notif-center__hint {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+@media (min-width: 801px) { .notif-center__hint { display: flex; } }
+
+.notif-center__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.notif-center__item {
+  position: relative;
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  min-height: 64px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              border-color var(--duration-fast) var(--ease-standard);
+}
+.notif-center__item:hover { border-color: var(--border-strong); }
+.notif-center__item:active { background: var(--bg-surface-hover); }
+.notif-center__item--unread {
+  background: var(--color-primary-bg);
+  border-color: var(--color-primary-border);
+}
+
+.notif-center__item-icon {
+  width: 40px; height: 40px;
+  border-radius: var(--radius-md);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.notif-center__item-icon--primary { background: var(--color-primary-bg); color: var(--color-primary); }
+.notif-center__item-icon--danger  { background: var(--color-danger-bg);  color: var(--color-danger); }
+.notif-center__item-icon--warning { background: var(--color-warning-bg); color: var(--color-warning); }
+.notif-center__item-icon--success { background: var(--color-success-bg); color: var(--color-success); }
+.notif-center__item-icon--neutral { background: var(--bg-surface-active); color: var(--text-secondary); }
+
+.notif-center__item-body { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.notif-center__item-title { font-size: var(--text-md); font-weight: 700; color: var(--text-primary); }
+.notif-center__item-msg {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+}
+.notif-center__item-time {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.notif-center__dot {
+  position: absolute;
+  top: var(--space-4);
+  inset-inline-end: var(--space-4);
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}

@@ -1,0 +1,3 @@
+/* The new-lead form is two short fields and two long ones; the grid pairs
+   the short ones and the collapse breakpoint lives in design-system.css. */
+.text-red-500 { color: var(--color-danger); }

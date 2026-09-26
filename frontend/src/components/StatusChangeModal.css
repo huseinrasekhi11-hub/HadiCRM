@@ -1,0 +1,48 @@
+/* ==========================================================================
+   Status-change modal
+   Closing a file is the highest-stakes action in the product: it locks the
+   invoice and ends the cadence. The loss reasons and the won form both get
+   a bounded panel so the choice reads as a decision, not a stray control.
+   ========================================================================== */
+
+.status-change-modal { max-width: 520px; }
+
+/* --- Loss reasons --- */
+.loss-reason-section {
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.loss-reason-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.loss-chip {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  color: var(--text-secondary);
+  padding: 8px 13px;
+  min-height: 40px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              border-color var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard);
+}
+.loss-chip:hover { border-color: var(--color-danger-border); color: var(--color-danger); background: var(--color-danger-bg); }
+.loss-chip--active {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--text-inverse);
+}
+
+/* --- Won form --- */
+.won-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 var(--space-4);
+  margin-bottom: var(--space-2);
+}
+@media (max-width: 520px) { .won-form-grid { grid-template-columns: 1fr; } }

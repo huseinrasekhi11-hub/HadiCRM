@@ -1,0 +1,107 @@
+/* ==========================================================================
+   HadiFlow — Motion
+   --------------------------------------------------------------------------
+   Motion answers an action: something opened, something was confirmed,
+   something arrived. It does not announce that a page has loaded. The
+   previous build ran a stagger entrance on every row, card and panel, which
+   replayed on every infinite-scroll append and made long lists feel unstable.
+   Entrances are now reserved for surfaces the user summoned.
+   ========================================================================== */
+
+/* --- Entrances -------------------------------------------------------- */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeSlideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes sheetUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* --- Feedback ---------------------------------------------------------- */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@keyframes shimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+/* Legacy alias — older stylesheets reference this name. */
+@keyframes skeletonShimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
+/* A single soft pulse behind a critical health dot. Slow enough to read as
+   a status light rather than an alarm. */
+@keyframes healthPing {
+  0%        { transform: scale(1);   opacity: 0.5; }
+  70%, 100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* Used once, on the bell, and only while something is genuinely unread. */
+@keyframes gentleShake {
+  0%, 92%, 100% { transform: rotate(0deg); }
+  93% { transform: rotate(8deg); }
+  95% { transform: rotate(-8deg); }
+  97% { transform: rotate(4deg); }
+  99% { transform: rotate(-3deg); }
+}
+
+@keyframes checkPop {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); max-height: 0; }
+  to   { opacity: 1; transform: translateY(0); max-height: 320px; }
+}
+
+/* --- Utilities --------------------------------------------------------- */
+.animate-spin, .spin { animation: spin 0.75s linear infinite; transform-origin: center; }
+.animate-page-enter { animation: fadeSlideUp var(--duration-normal) var(--ease-out) both; }
+.animate-slide-down { animation: slideDown var(--duration-normal) var(--ease-out) both; }
+.animate-fade-in { animation: fadeIn var(--duration-normal) ease both; }
+
+/* Stagger is kept for short, fixed-length reveals only (notification feed,
+   funnel bars). It is capped so a long list never waits on a queue. */
+.animate-stagger-up {
+  animation: fadeSlideUp var(--duration-normal) var(--ease-out) both;
+  animation-delay: calc(min(var(--stagger, 0), 8) * 28ms);
+}
+
+/* --- Reduced motion ---------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Spinners still need to convey "working", so they keep turning — just
+     slowly and without the jitter that triggers vestibular symptoms. */
+  .spin, .animate-spin { animation: spin 1.8s linear infinite !important; }
+}

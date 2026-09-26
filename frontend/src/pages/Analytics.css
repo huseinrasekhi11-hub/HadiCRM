@@ -1,0 +1,100 @@
+/* ==========================================================================
+   Analytics — the sales workspace (admin / CEO)
+   --------------------------------------------------------------------------
+   Shares the panel vocabulary with the dashboard so a manager moving between
+   the two is not relearning a layout. What is different here is the controls:
+   every chart has a granularity or calendar switch, so those get a real
+   segmented control rather than a row of loose buttons.
+   ========================================================================== */
+
+.analytics-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: var(--content-max);
+  margin-inline: auto;
+  padding-bottom: var(--space-10);
+}
+
+/* --- Header --- */
+.analytics-header { display: flex; flex-direction: column; gap: var(--space-3); }
+.analytics-header__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-primary);
+}
+.analytics-header__title h1 {
+  font-size: var(--text-3xl);
+  font-weight: 800;
+  margin: 0;
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-primary);
+  line-height: var(--leading-tight);
+}
+.analytics-header__subtitle {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 64ch;
+  line-height: var(--leading-normal);
+}
+.analytics-header__controls { display: flex; justify-content: flex-start; flex-wrap: wrap; gap: var(--space-2); }
+
+/* --- Segmented control --- */
+.seg {
+  display: inline-flex;
+  background: var(--bg-surface-active);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 2px;
+}
+.seg__btn {
+  background: transparent;
+  border: none;
+  padding: 6px 13px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard);
+}
+.seg__btn:hover { color: var(--text-primary); }
+.seg__btn--active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-xs);
+}
+
+/* --- Referral pairs --- */
+.referral-list { display: flex; flex-direction: column; gap: 6px; }
+.referral-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px var(--space-3);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  background: var(--bg-surface);
+}
+.referral-row__from { font-weight: 600; color: var(--text-primary); flex: 1; min-width: 0; }
+.referral-row__arrow { color: var(--text-tertiary); flex-shrink: 0; }
+.referral-row__to { font-weight: 600; color: var(--text-primary); flex: 1; min-width: 0; }
+.referral-row__count {
+  font-weight: 700;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .analytics-header__title h1 { font-size: var(--text-2xl); }
+  .seg { width: 100%; }
+  .seg__btn { flex: 1; }
+}

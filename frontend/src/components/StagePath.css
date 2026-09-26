@@ -1,0 +1,99 @@
+/* ==========================================================================
+   Stage path
+   --------------------------------------------------------------------------
+   The funnel as a track the record moves along. Completed stages fill in
+   behind the current one so progress is visible at a glance, and the track
+   itself carries the cold-to-hot ramp — the one place a gradient is used,
+   because here position along it *is* the information.
+   ========================================================================== */
+
+.stage-path {
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: var(--space-2) 0;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+.stage-path::-webkit-scrollbar { display: none; }
+
+.stage-path__track {
+  display: flex;
+  align-items: flex-start;
+  position: relative;
+  min-width: max-content;
+  padding: 0 var(--space-2);
+}
+.stage-path__track::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  inset-inline: 46px;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    to left,
+    var(--refrigerant-200),
+    var(--refrigerant-200) 30%,
+    var(--copper-200) 72%,
+    var(--copper-200)
+  );
+  opacity: 0.55;
+  z-index: 0;
+}
+
+.stage-path__step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-1) var(--space-3);
+  min-width: 78px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+.stage-path__step:disabled { cursor: default; }
+
+.stage-path__dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  border: 2px solid var(--border-strong);
+  transition: background-color var(--duration-normal) var(--ease-out),
+              border-color var(--duration-normal) var(--ease-out),
+              box-shadow var(--duration-normal) var(--ease-out),
+              transform var(--duration-normal) var(--ease-out);
+}
+.stage-path__label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.stage-path__step--past .stage-path__dot {
+  background: var(--stage-color);
+  border-color: var(--stage-color);
+  opacity: 0.55;
+}
+.stage-path__step--past .stage-path__label { color: var(--text-secondary); }
+
+.stage-path__step--current .stage-path__dot {
+  background: var(--stage-color);
+  border-color: var(--stage-color);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--stage-color) 22%, transparent);
+  transform: scale(1.15);
+}
+.stage-path__step--current .stage-path__label { color: var(--text-primary); font-weight: 700; }
+
+.stage-path__step:not(:disabled):not(.stage-path__step--current):hover .stage-path__dot {
+  border-color: var(--stage-color);
+  transform: scale(1.12);
+}
+.stage-path__step:not(:disabled):not(.stage-path__step--current):hover .stage-path__label {
+  color: var(--text-primary);
+}

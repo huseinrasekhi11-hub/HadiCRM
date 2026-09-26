@@ -1,0 +1,30 @@
+# محیط مجازی و کش پایتون
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# اسرار — هرگز نباید داخل ایمیج ساخته شود
+.env
+.env.*
+!.env.example
+
+# دیتای محلی/آپلودها — این‌ها باید از طریق volume تزریق شوند، نه کپی
+uploads/
+
+# ابزارهای توسعه و کنترل نسخه
+.git/
+.gitignore
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+
+# اسکریپت‌های یک‌بارمصرف دیتابیس و فایل‌های اضافی مخزن
+backup_*.sql
+Untitled-1.txt
+requirements_fixed.txt
+
+# IDE
+.vscode/
+.idea/

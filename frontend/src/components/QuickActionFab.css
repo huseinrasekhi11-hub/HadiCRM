@@ -1,0 +1,28 @@
+/* ==========================================================================
+   Quick-action FAB
+   Rides the centre notch of the bottom nav. The ring is drawn in the app
+   background colour so the button appears to punch through the bar.
+   ========================================================================== */
+
+.quick-fab {
+  position: absolute;
+  top: -20px;
+  inset-inline-start: 50%;
+  transform: translateX(50%);
+  width: 52px; height: 52px;
+  border-radius: var(--radius-xl);
+  background: var(--color-primary);
+  color: var(--text-on-primary);
+  border: 4px solid var(--bg-app);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  z-index: 1;
+  transition: transform var(--duration-instant) var(--ease-standard),
+              background-color var(--duration-fast) var(--ease-standard);
+}
+.quick-fab:active {
+  transform: translateX(50%) scale(0.93);
+  background: var(--color-primary-active);
+}

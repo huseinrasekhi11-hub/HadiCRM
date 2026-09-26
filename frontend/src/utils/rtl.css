@@ -1,0 +1,50 @@
+/* ==========================================================================
+   RTL / logical-property utilities
+   Prefer these over physical left/right so direction stays correct without
+   a second set of rules.
+   ========================================================================== */
+
+/* --- Logical spacing --------------------------------------------------- */
+.ms-auto { margin-inline-start: auto; }
+.me-auto { margin-inline-end: auto; }
+.ms-1 { margin-inline-start: var(--space-1); }
+.ms-2 { margin-inline-start: var(--space-2); }
+.ms-3 { margin-inline-start: var(--space-3); }
+.me-1 { margin-inline-end: var(--space-1); }
+.me-2 { margin-inline-end: var(--space-2); }
+.me-3 { margin-inline-end: var(--space-3); }
+.ps-2 { padding-inline-start: var(--space-2); }
+.ps-3 { padding-inline-start: var(--space-3); }
+.pe-2 { padding-inline-end: var(--space-2); }
+.pe-3 { padding-inline-end: var(--space-3); }
+
+/* --- Logical alignment -------------------------------------------------- */
+.text-start { text-align: start; }
+.text-end { text-align: end; }
+
+/* --- LTR islands --------------------------------------------------------
+   Phone numbers, invoice codes and emails must not be reordered by the
+   surrounding RTL context. `unicode-bidi: isolate` is what actually stops
+   a leading zero or a trailing bracket jumping to the other end.
+   ------------------------------------------------------------------------ */
+.ltr-island,
+.premium-input--ltr,
+.font-mono-ltr {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Direction-aware icons ----------------------------------------------
+   An arrow meaning "forward" points left in RTL. Applied deliberately, not
+   globally, because an arrow meaning "up and to the right" (a trend, an
+   external link) should not flip.
+   ------------------------------------------------------------------------ */
+[dir="rtl"] .icon-flip-rtl { transform: scaleX(-1); }
+
+/* --- Fills -------------------------------------------------------------- */
+.rtl-fill { position: absolute; inset-block: 0; inset-inline-start: 0; }
+
+/* --- Numerals ------------------------------------------------------------ */
+.tabular-nums { font-variant-numeric: tabular-nums; }

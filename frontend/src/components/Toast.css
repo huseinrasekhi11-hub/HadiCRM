@@ -1,0 +1,88 @@
+/* ==========================================================================
+   Toast
+   --------------------------------------------------------------------------
+   Toasts confirm that something the user did actually landed. They stack
+   from the newest down, tint by outcome, and never block the controls the
+   user just touched — on a phone they sit above the bottom nav.
+   The previous build hardcoded a white background, which produced a white
+   card on a dark page.
+   ========================================================================== */
+
+.toast-viewport {
+  position: fixed;
+  bottom: var(--space-6);
+  inset-inline-end: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  z-index: var(--z-toast);
+  pointer-events: none;
+}
+
+.premium-toast {
+  position: absolute;
+  bottom: 0;
+  inset-inline-end: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 12px var(--space-3) 12px var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-inline-start: 3px solid var(--toast-tone, var(--border-strong));
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+  transform-origin: bottom center;
+  transform: translateY(calc(var(--offset, 0px) * -1)) scale(var(--scale, 1));
+  z-index: calc(100 - var(--index, 0));
+  transition: transform var(--duration-slow) var(--ease-out),
+              opacity var(--duration-slow) var(--ease-out);
+  animation: toastIn var(--duration-normal) var(--ease-out) both;
+  min-width: 288px;
+  max-width: 380px;
+}
+
+/* Stacked toasts behind the top one dim, so the newest message is the one
+   being read rather than three competing cards. */
+.premium-toast:not(:first-child) { opacity: 0.88; }
+.premium-toast:nth-child(3) { opacity: 0.7; }
+
+.premium-toast__icon { display: grid; place-items: center; color: var(--toast-tone); flex-shrink: 0; }
+.premium-toast--success { --toast-tone: var(--color-success); }
+.premium-toast--error   { --toast-tone: var(--color-danger); }
+.premium-toast--info    { --toast-tone: var(--color-primary); }
+.premium-toast--warning { --toast-tone: var(--color-warning); }
+
+.premium-toast__message {
+  flex: 1;
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: var(--leading-snug);
+}
+
+.premium-toast__close {
+  display: grid;
+  place-items: center;
+  width: 28px; height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard);
+}
+.premium-toast__close:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
+
+@media (max-width: 800px) {
+  .toast-viewport {
+    inset-inline: var(--space-3);
+    bottom: calc(var(--mobile-nav-height) + var(--space-3));
+    align-items: stretch;
+  }
+  .premium-toast { min-width: 0; max-width: none; inset-inline: 0; }
+  .premium-toast__close { width: 34px; height: 34px; }
+}

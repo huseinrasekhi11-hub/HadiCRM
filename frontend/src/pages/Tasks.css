@@ -1,0 +1,365 @@
+/* ==========================================================================
+   Daily Work — follow-ups and tasks
+   --------------------------------------------------------------------------
+   Two kinds of work live here, and they behave differently: a follow-up is a
+   person you call, a task is a thing you tick. They get different row shapes
+   so a rep never has to read a label to tell them apart.
+   ========================================================================== */
+
+.daily-work {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: 880px;
+  margin-inline: auto;
+  padding-bottom: 96px; /* clears the floating new-task button */
+}
+
+/* ==========================================================================
+   HEADER
+   ========================================================================== */
+.dw-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.dw-header__text { min-width: 0; }
+.dw-header__title {
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  margin: 0;
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+}
+.dw-header__date { font-size: var(--text-base); color: var(--text-secondary); margin: 5px 0 0; }
+.dw-header__sub { font-size: var(--text-base); color: var(--text-tertiary); margin: 5px 0 0; }
+.dw-header__new { flex-shrink: 0; }
+.dw-skeleton { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* ==========================================================================
+   SECTIONS
+   ========================================================================== */
+.dw-body { display: flex; flex-direction: column; gap: var(--space-6); }
+
+.dw-section__header,
+.dw-section__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 0 2px var(--space-2);
+  margin-bottom: var(--space-3);
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  background: none;
+  text-align: start;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+.dw-section__header { cursor: default; }
+.dw-section__toggle { border-bottom: none; margin-bottom: 0; }
+.dw-section__toggle:hover { color: var(--color-primary); }
+
+.dw-section__title {
+  font-size: var(--text-md);
+  font-weight: 700;
+  margin: 0;
+  color: inherit;
+  letter-spacing: var(--tracking-snug);
+}
+.dw-section__count {
+  margin-inline-start: auto;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-active);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 22px;
+  text-align: center;
+}
+.dw-section__chevron {
+  color: var(--text-tertiary);
+  transition: transform var(--duration-normal) var(--ease-out);
+}
+.dw-section__chevron--open { transform: rotate(180deg); }
+.dw-section__list { display: flex; flex-direction: column; gap: 6px; }
+
+.dw-section--danger  .dw-section__header,
+.dw-section--danger  .dw-section__toggle { color: var(--color-danger); }
+.dw-section--danger  .dw-section__count  { background: var(--color-danger-bg); color: var(--color-danger); }
+.dw-section--primary .dw-section__header { color: var(--color-primary); }
+.dw-section--primary .dw-section__count  { background: var(--color-primary-bg); color: var(--color-primary); }
+.dw-section--neutral .dw-section__header { color: var(--text-secondary); }
+.dw-section--done    .dw-section__toggle { color: var(--color-success); }
+
+/* ==========================================================================
+   FOLLOW-UP ROW
+   ========================================================================== */
+.fu-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) 10px;
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+.fu-row:hover { border-color: var(--border-strong); }
+/* An overdue follow-up tints its whole frame, not just its clock. */
+.fu-row--overdue {
+  border-color: color-mix(in srgb, var(--color-danger) 34%, var(--border-base));
+  background: color-mix(in srgb, var(--color-danger) 3.5%, var(--bg-surface));
+}
+
+.fu-row__main {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 10px;
+  background: none; border: none;
+  cursor: pointer;
+  text-align: start;
+  padding: 5px 4px;
+  border-radius: var(--radius-sm);
+}
+.fu-row__bar {
+  width: 3px;
+  align-self: stretch;
+  min-height: 32px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+}
+.fu-row__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fu-row__name {
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fu-row__meta { display: flex; align-items: center; gap: 6px; font-size: var(--text-sm); flex-wrap: wrap; }
+.fu-row__dot { color: var(--text-tertiary); opacity: 0.6; }
+.fu-row__mobile {
+  direction: ltr; unicode-bidi: isolate;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+.fu-row__time {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.fu-row__time--overdue { color: var(--color-danger); font-weight: 700; }
+.fu-row__actions { display: flex; gap: 3px; flex-shrink: 0; }
+
+/* ==========================================================================
+   SHARED ROW ACTIONS
+   ========================================================================== */
+.row-action {
+  width: 42px; height: 42px;
+  display: grid; place-items: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-base);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              border-color var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard),
+              transform var(--duration-instant) var(--ease-standard);
+}
+.row-action:hover { background: var(--bg-surface-hover); border-color: var(--border-strong); color: var(--text-primary); }
+.row-action:active { transform: scale(0.93); }
+.row-action--call {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 32%, transparent);
+  background: var(--color-success-bg);
+}
+.row-action--call:hover { background: var(--color-success); color: var(--text-inverse); border-color: var(--color-success); }
+
+/* ==========================================================================
+   TASK ROW
+   ========================================================================== */
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  padding: 11px var(--space-3);
+  transition: border-color var(--duration-fast) var(--ease-standard),
+              background-color var(--duration-fast) var(--ease-standard);
+}
+.task-row:hover { border-color: var(--border-strong); }
+.task-row--done { background: var(--bg-surface-hover); opacity: 0.75; }
+.task-row--done .task-row__title { text-decoration: line-through; color: var(--text-tertiary); }
+
+.task-row__check {
+  width: 24px; height: 24px;
+  flex-shrink: 0;
+  border-radius: var(--radius-xs);
+  border: 2px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-inverse);
+  display: grid; place-items: center;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              border-color var(--duration-fast) var(--ease-standard),
+              transform var(--duration-instant) var(--ease-standard);
+}
+.task-row__check:hover { border-color: var(--color-success); }
+.task-row__check:active { transform: scale(0.9); }
+.task-row__check--checked {
+  background: var(--color-success);
+  border-color: var(--color-success);
+  animation: checkPop var(--duration-normal) var(--ease-out);
+}
+.task-row__check--overdue { border-color: var(--color-danger); }
+
+.task-row__main {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-3);
+  background: none; border: none;
+  cursor: pointer;
+  text-align: start;
+  border-radius: var(--radius-sm);
+}
+.task-row__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.task-row__title { font-size: var(--text-md); font-weight: 600; color: var(--text-primary); }
+.task-row__lead {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.task-row__due {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.task-row__due--overdue { color: var(--color-danger); font-weight: 700; }
+
+/* ==========================================================================
+   EMPTY
+   ========================================================================== */
+.dw-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-2);
+  padding: 56px var(--space-6);
+  color: var(--color-success);
+  background: var(--bg-surface);
+  border: 1px dashed var(--color-success-border);
+  border-radius: var(--radius-lg);
+}
+.dw-empty h3 { margin: var(--space-2) 0 0; color: var(--text-primary); font-size: var(--text-lg); }
+.dw-empty p {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  max-width: 36ch;
+  line-height: var(--leading-normal);
+}
+
+/* ==========================================================================
+   FLOATING NEW-TASK BUTTON (mobile)
+   Sits on the inline-start edge so it never collides with the centre FAB in
+   the bottom nav, and clears the nav plus the home indicator.
+   ========================================================================== */
+.dw-fab {
+  position: fixed;
+  bottom: calc(var(--mobile-nav-height, 0px) + var(--space-4));
+  inset-inline-start: var(--space-4);
+  width: 52px; height: 52px;
+  border-radius: var(--radius-xl);
+  background: var(--bg-surface);
+  color: var(--color-primary);
+  border: 1px solid var(--border-base);
+  display: grid; place-items: center;
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+  z-index: var(--z-fab);
+  transition: transform var(--duration-instant) var(--ease-standard),
+              background-color var(--duration-fast) var(--ease-standard);
+}
+.dw-fab:active { transform: scale(0.93); background: var(--bg-surface-hover); }
+
+@media (min-width: 801px) {
+  .dw-fab { display: none; }
+  .daily-work { padding-bottom: var(--space-10); }
+}
+
+/* ==========================================================================
+   NEW-TASK MODAL: LEAD PICKER
+   ========================================================================== */
+.nt-leadpicker { display: flex; flex-direction: column; gap: var(--space-2); }
+.nt-search { position: relative; }
+.nt-search__icon {
+  position: absolute;
+  top: 50%;
+  inset-inline-start: 13px;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+.nt-results {
+  display: flex; flex-direction: column; gap: 5px;
+  max-height: 236px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.nt-results__hint {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-base);
+  color: var(--text-tertiary);
+  padding: var(--space-3) var(--space-1);
+}
+.nt-result {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px var(--space-3);
+  min-height: 48px;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  cursor: pointer;
+  text-align: start;
+  transition: border-color var(--duration-fast) var(--ease-standard),
+              background-color var(--duration-fast) var(--ease-standard);
+}
+.nt-result:hover { border-color: var(--color-primary); background: var(--color-primary-bg); }
+.nt-result__bar { width: 3px; align-self: stretch; min-height: 28px; border-radius: var(--radius-pill); flex-shrink: 0; }
+.nt-result__body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.nt-result__name { font-size: var(--text-base); font-weight: 700; color: var(--text-primary); }
+.nt-result__mobile {
+  font-size: var(--text-sm);
+  direction: ltr; unicode-bidi: isolate;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.nt-selected {
+  display: flex; align-items: center; gap: 10px;
+  padding: var(--space-3);
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--radius-md);
+  background: var(--color-primary-bg);
+}
+.nt-selected__bar { width: 3px; align-self: stretch; min-height: 30px; border-radius: var(--radius-pill); }
+.nt-selected__info { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.nt-selected__name { font-size: var(--text-md); font-weight: 700; color: var(--text-primary); }
+.nt-selected__mobile {
+  font-size: var(--text-sm);
+  direction: ltr; unicode-bidi: isolate;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}

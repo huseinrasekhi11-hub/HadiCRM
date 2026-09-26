@@ -1,0 +1,241 @@
+/* ==========================================================================
+   Notification bell + popover
+   --------------------------------------------------------------------------
+   Every surface here previously used a hardcoded white — the popover body,
+   its header, and the 2px ring around the unread badge — so in dark mode the
+   panel was a white slab with a white halo. All three now derive from
+   tokens.
+   ========================================================================== */
+
+.notif-container { position: relative; }
+
+.notif-trigger {
+  position: relative;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  width: 34px; height: 34px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard),
+              border-color var(--duration-fast) var(--ease-standard);
+}
+.notif-trigger:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+  border-color: var(--border-base);
+}
+.notif-trigger--has-unread { color: var(--text-primary); }
+/* A long, slow cycle: the bell twitches roughly once every ten seconds while
+   something is genuinely unread, then holds still. */
+.notif-trigger--has-unread .notif-trigger__icon {
+  animation: gentleShake 10s ease-in-out infinite;
+  transform-origin: top center;
+}
+
+.notif-badge {
+  position: absolute;
+  top: -3px;
+  inset-inline-end: -3px;
+  min-width: 17px; height: 17px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--color-danger);
+  color: var(--text-on-vivid);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  border: 2px solid var(--bg-app);
+}
+
+/* ==========================================================================
+   POPOVER
+   ========================================================================== */
+.notif-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  inset-inline-end: 0;
+  width: 372px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  z-index: var(--z-popover);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: popIn var(--duration-normal) var(--ease-out) both;
+  transform-origin: top left;
+}
+
+.notif-popover__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface-hover);
+}
+.notif-popover__title {
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+.notif-popover__mark-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+.notif-popover__mark-all:hover { background: var(--color-primary-bg); }
+
+.notif-popover__body {
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ==========================================================================
+   FEED
+   ========================================================================== */
+.notif-feed { display: flex; flex-direction: column; }
+
+.notif-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  text-align: start;
+  background: none;
+  border-inline: none;
+  border-top: none;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+  animation: slideInRight var(--duration-normal) var(--ease-out) both;
+  animation-delay: calc(min(var(--stagger, 0), 6) * 30ms);
+}
+.notif-item:last-child { border-bottom: none; }
+.notif-item:hover { background: var(--bg-surface-hover); }
+.notif-item--unread { background: var(--color-primary-bg); }
+.notif-item--unread:hover { background: var(--color-primary-bg-strong); }
+
+.notif-item__unread-dot {
+  position: absolute;
+  inset-inline-start: 7px;
+  top: 22px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
+.notif-item__icon-wrap {
+  width: 34px; height: 34px;
+  border-radius: var(--radius-md);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.notif-item__icon-wrap--primary { background: var(--color-primary-bg); color: var(--color-primary); }
+.notif-item__icon-wrap--danger  { background: var(--color-danger-bg);  color: var(--color-danger); }
+.notif-item__icon-wrap--warning { background: var(--color-warning-bg); color: var(--color-warning); }
+.notif-item__icon-wrap--success { background: var(--color-success-bg); color: var(--color-success); }
+.notif-item__icon-wrap--neutral { background: var(--bg-surface-active); color: var(--text-secondary); }
+
+.notif-item__content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.notif-item__title { font-size: var(--text-base); font-weight: 700; color: var(--text-primary); }
+.notif-item__message {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-snug);
+}
+.notif-item__time {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  margin-top: 1px;
+}
+
+/* On a pointer device the call shortcut appears on hover; on touch there is
+   no hover, so it is always visible (see the coarse-pointer rule below). */
+.notif-item__action-btn {
+  width: 32px; height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  color: var(--text-secondary);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard),
+              background-color var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard);
+}
+.notif-item:hover .notif-item__action-btn,
+.notif-item:focus-within .notif-item__action-btn { opacity: 1; }
+.notif-item__action-btn:hover {
+  background: var(--color-success-bg);
+  border-color: color-mix(in srgb, var(--color-success) 32%, transparent);
+  color: var(--color-success);
+}
+
+/* ==========================================================================
+   EMPTY & LOADING
+   ========================================================================== */
+.notif-empty {
+  padding: 48px var(--space-6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-3);
+}
+.notif-empty__icon {
+  width: 48px; height: 48px;
+  border-radius: var(--radius-xl);
+  background: var(--bg-surface-active);
+  color: var(--text-tertiary);
+  display: grid;
+  place-items: center;
+}
+.notif-empty p { margin: 0; font-size: var(--text-base); font-weight: 600; color: var(--text-secondary); }
+
+.notif-loading { padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+.notif-skeleton { height: 56px; border-radius: var(--radius-md); }
+
+/* ==========================================================================
+   MOBILE
+   ========================================================================== */
+@media (max-width: 800px) {
+  .notif-popover {
+    position: fixed;
+    top: calc(var(--mobile-header-height) + env(safe-area-inset-top, 0px) + var(--space-2));
+    inset-inline: var(--space-3);
+    width: auto;
+    max-height: calc(100dvh - var(--mobile-header-height) - var(--mobile-nav-height) - var(--space-6));
+  }
+  .notif-popover__body { max-height: none; flex: 1; }
+}
+
+@media (pointer: coarse) {
+  .notif-item__action-btn { opacity: 1; width: 40px; height: 40px; }
+}

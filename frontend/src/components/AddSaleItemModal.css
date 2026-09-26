@@ -1,0 +1,6 @@
+/* Sale-item capture uses the shared field and select primitives; only the
+   amount needs its own treatment so large Rial figures stay readable. */
+.sale-item-amount {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}

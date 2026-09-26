@@ -1,0 +1,10 @@
+class ActivityTypes:
+    NOTE = "note"
+    CALL = "call"
+    MEETING = "meeting"
+    MESSAGE = "message"
+    STATUS_CHANGE = "status_change"
+    LEAD_CREATED = "lead_created"
+    LEAD_ASSIGNED = "lead_assigned"
+    TASK_CREATED = "task_created"
+    TASK_COMPLETED = "task_completed"

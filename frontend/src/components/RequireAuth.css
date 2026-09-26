@@ -1,0 +1,35 @@
+/* ==========================================================================
+   Boot screen
+   Shown for the moment the session is verified. Deliberately minimal — a
+   splash that animates hard makes a fast load feel slower than it is.
+   ========================================================================== */
+.boot-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: var(--bg-app);
+}
+.boot-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-6);
+}
+.boot-logo { height: 44px; width: auto; }
+
+.boot-spinner { position: relative; width: 28px; height: 28px; }
+.boot-spinner__track {
+  position: absolute;
+  inset: 0;
+  border: 2.5px solid var(--border-base);
+  border-radius: 50%;
+}
+.boot-spinner__head {
+  position: absolute;
+  inset: 0;
+  border: 2.5px solid transparent;
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}

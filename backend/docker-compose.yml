@@ -1,0 +1,67 @@
+services:
+  # ۱. کانتینر دیتابیس PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: hadiflow_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hadiflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?رمز دیتابیس باید در .env تنظیم شود}
+      POSTGRES_DB: ${POSTGRES_DB:-hadiflow}
+    # پورت دیتابیس دیگر به میزبان expose نمی‌شود؛ فقط سرویس داخلی api
+    # به آن دسترسی دارد.
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hadiflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ۲. اجرای مهاجرت‌های Alembic پیش از بالا آمدن سرویس.
+  # پیش از این هیچ مرحله‌ی migration در compose وجود نداشت و اسکیما
+  # با ~۲۰ اسکریپت دستی مدیریت می‌شد که با Alembic هم‌خوانی نداشت.
+  migrate:
+    build: .
+    container_name: hadiflow_migrate
+    command: alembic upgrade head
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+
+  # ۳. کانتینر بک‌اند و پنل وب (FastAPI).
+  # این استقرار فقط یک وب‌سایت مستقل است؛ سرویس ربات بله عمداً حذف
+  # شده و هیچ اتصالی به آن وجود ندارد.
+  api:
+    build: .
+    container_name: hadiflow_api
+    restart: always
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      ENABLE_SCHEDULER: "true"
+    env_file:
+      - .env
+    volumes:
+      - uploads_data:/app/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+# حفظ اطلاعات دیتابیس و فایل‌های آپلودی در صورت خاموش شدن سرور
+volumes:
+  postgres_data:
+  uploads_data:

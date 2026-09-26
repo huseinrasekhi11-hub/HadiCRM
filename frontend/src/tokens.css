@@ -1,0 +1,382 @@
+/* ==========================================================================
+   HadiFlow — Design Tokens
+   --------------------------------------------------------------------------
+   The palette runs on a temperature axis, because in this product temperature
+   is information, not decoration: an HVAC company sells heating and cooling,
+   and its sales pipeline is described in the same words (a cold lead, a hot
+   lead). Teal-cyan reads as the cold side — refrigerant lines, early pipeline,
+   healthy. Copper reads as the hot side — heat exchangers, leads going stale,
+   things that need attention now. Neutrals are galvanised steel: cool-tinted
+   greys, never warm.
+
+   Every value used anywhere in the app resolves here. Legacy aliases at the
+   bottom keep older stylesheets working instead of silently failing.
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* --- 1. Steel: cool-tinted neutrals -------------------------------- */
+  --steel-25:  #fbfcfd;
+  --steel-50:  #f6f8f9;
+  --steel-100: #eceff2;
+  --steel-150: #e2e7eb;
+  --steel-200: #d6dde2;
+  --steel-300: #b6c1c9;
+  --steel-400: #8896a1;
+  --steel-500: #667581;
+  --steel-600: #4e5b66;
+  --steel-700: #3a454e;
+  --steel-800: #28313a;
+  --steel-900: #1b2227;
+  --steel-950: #10161a;
+
+  /* --- 2. Refrigerant: the cold side, and the brand ------------------- */
+  --refrigerant-50:  #eaf5f8;
+  --refrigerant-100: #cfe9ef;
+  --refrigerant-200: #a3d5e0;
+  --refrigerant-300: #6bbccd;
+  --refrigerant-400: #2f9db5;
+  --refrigerant-500: #17879f;
+  --refrigerant-600: #0e6e80;
+  --refrigerant-700: #0c5968;
+  --refrigerant-800: #0d4854;
+  --refrigerant-900: #0d3b45;
+
+  /* --- 3. Copper: the hot side --------------------------------------- */
+  --copper-50:  #fdf3ec;
+  --copper-100: #f9e1cf;
+  --copper-200: #f2c19f;
+  --copper-300: #e79b68;
+  --copper-400: #d97b3c;
+  --copper-500: #c2632a;
+  --copper-600: #a44f20;
+  --copper-700: #833e1c;
+
+  /* --- 4. Semantic hues ---------------------------------------------- */
+  --emerald-50:  #e9f6f0;
+  --emerald-100: #cceade;
+  --emerald-400: #2aa678;
+  --emerald-500: #158c62;
+  --emerald-600: #0f7352;
+  --emerald-700: #0c5c42;
+
+  --rose-50:  #fdeef0;
+  --rose-100: #f8d5d9;
+  --rose-400: #e05c65;
+  --rose-500: #d0434d;
+  --rose-600: #b6303b;
+  --rose-700: #96262f;
+
+  --amber-50:  #fdf4e3;
+  --amber-100: #f9e6bf;
+  --amber-400: #e0a32c;
+  --amber-500: #c98a12;
+  --amber-600: #a87010;
+  --amber-700: #8d5c0d;
+  --amber-800: #784e0b;
+
+  /* --- 5. Surfaces & text (light) ------------------------------------ */
+  --bg-app: var(--steel-50);
+  --bg-app-raised: #ffffff;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: var(--steel-50);
+  --bg-surface-active: var(--steel-100);
+  --bg-sunken: var(--steel-100);
+  --bg-overlay: rgb(16 22 26 / 0.44);
+
+  --border-subtle: var(--steel-100);
+  --border-base: var(--steel-200);
+  --border-strong: var(--steel-300);
+
+  --text-primary: var(--steel-900);
+  --text-secondary: var(--steel-600);
+  --text-tertiary: var(--steel-400);
+  --text-inverse: #ffffff;
+  --text-on-primary: #ffffff;
+  /* Text placed on a saturated fill (danger badge, accent button, a stage
+     coloured avatar). Flips in dark mode, where those fills are lightened. */
+  --text-on-vivid: #ffffff;
+
+  /* --- 6. Roles ------------------------------------------------------- */
+  --color-primary: var(--refrigerant-600);
+  --color-primary-hover: var(--refrigerant-700);
+  --color-primary-active: var(--refrigerant-800);
+  --color-primary-bg: var(--refrigerant-50);
+  --color-primary-bg-strong: var(--refrigerant-100);
+  --color-primary-border: var(--refrigerant-200);
+
+  /* Two steps darker than the copper used for stage dots: at --copper-500
+     the accent reads well as a 3px spine but fails 4.5:1 as label text and
+     as a button fill under white. */
+  --color-accent: var(--copper-600);
+  --color-accent-hover: var(--copper-700);
+  --color-accent-bg: var(--copper-50);
+
+  --color-success: var(--emerald-600);
+  --color-success-hover: var(--emerald-700);
+  --color-success-bg: var(--emerald-50);
+  --color-success-border: var(--emerald-100);
+
+  --color-danger: var(--rose-600);
+  --color-danger-hover: var(--rose-700);
+  --color-danger-bg: var(--rose-50);
+  --color-danger-border: var(--rose-100);
+
+  --color-warning: var(--amber-700);
+  --color-warning-hover: var(--amber-800);
+  --color-warning-bg: var(--amber-50);
+  --color-warning-border: var(--amber-100);
+
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent);
+
+  /* --- 7. Pipeline stages: a cold-to-hot progression ------------------ */
+  /* Read left-to-right down the funnel: first contact is cold, a signed
+     invoice is warm, a closed sale is green, a lost file is red.         */
+  --stage-new:              var(--refrigerant-300);
+  --stage-contacted:        var(--refrigerant-400);
+  --stage-no-answer:        var(--steel-400);
+  --stage-negotiating:      var(--refrigerant-600);
+  --stage-waiting:          var(--amber-500);
+  --stage-catalog:          var(--copper-300);
+  --stage-price:            var(--copper-400);
+  --stage-proforma:         var(--copper-500);
+  --stage-invoice:          var(--emerald-400);
+  --stage-won:              var(--emerald-600);
+  --stage-lost:             var(--rose-600);
+
+  /* --- 8. Health ------------------------------------------------------ */
+  --health-healthy:  var(--emerald-500);
+  --health-attention: var(--amber-500);
+  --health-risk:     var(--copper-500);
+  --health-critical: var(--rose-600);
+
+  /* --- 9. Typography -------------------------------------------------- */
+  --font-sans: 'Vazirmatn', 'Vazirmatn VF', system-ui, -apple-system,
+               'Segoe UI', Roboto, 'Noto Sans Arabic', sans-serif;
+  --font-num: 'Vazirmatn', system-ui, sans-serif;
+
+  --text-2xs: 10.5px;
+  --text-xs:  11.5px;
+  --text-sm:  12.5px;
+  --text-base: 13.5px;
+  --text-md:  14.5px;
+  --text-lg:  16px;
+  --text-xl:  18px;
+  --text-2xl: 21px;
+  --text-3xl: 25px;
+  --text-4xl: 30px;
+
+  --leading-tight: 1.25;
+  --leading-snug: 1.45;
+  --leading-normal: 1.65;
+  --leading-relaxed: 1.8;
+
+  --tracking-tight: -0.018em;
+  --tracking-snug: -0.008em;
+
+  /* --- 10. Space ------------------------------------------------------ */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* --- 11. Radii ------------------------------------------------------ */
+  /* Radius encodes scale: controls are tight, containers are soft. */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-pill: 999px;
+
+  /* --- 12. Elevation --------------------------------------------------- */
+  /* Tinted with the steel hue so shadows read cool, not muddy grey. */
+  --shadow-xs: 0 1px 2px 0 rgb(27 34 39 / 0.05);
+  --shadow-sm: 0 1px 3px 0 rgb(27 34 39 / 0.07), 0 1px 2px -1px rgb(27 34 39 / 0.05);
+  --shadow-md: 0 4px 10px -2px rgb(27 34 39 / 0.08), 0 2px 4px -2px rgb(27 34 39 / 0.05);
+  --shadow-lg: 0 12px 24px -6px rgb(27 34 39 / 0.12), 0 4px 8px -4px rgb(27 34 39 / 0.06);
+  --shadow-xl: 0 24px 48px -12px rgb(27 34 39 / 0.18), 0 8px 16px -8px rgb(27 34 39 / 0.08);
+  --shadow-glow-primary: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+
+  /* --- 13. Motion ------------------------------------------------------ */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.45, 0, 0.2, 1);
+  --duration-instant: 80ms;
+  --duration-fast: 140ms;
+  --duration-normal: 220ms;
+  --duration-slow: 340ms;
+
+  /* --- 14. Layout ------------------------------------------------------ */
+  --sidebar-width: 244px;
+  --topbar-height: 60px;
+  --mobile-header-height: 56px;
+  --mobile-nav-height: calc(60px + env(safe-area-inset-bottom, 0px));
+  --content-max: 1180px;
+  --content-narrow: 940px;
+  --z-sticky: 30;
+  --z-sidebar: 40;
+  --z-fab: 45;
+  --z-nav: 50;
+  --z-popover: 80;
+  --z-modal: 100;
+  --z-toast: 9000;
+}
+
+/* ==========================================================================
+   DARK MODE
+   Not an inversion. The cold side gets brighter so it still reads as the
+   action colour on a dark field; copper is lifted so it stays warm rather
+   than turning to mud; surfaces are steel rather than pure black, which
+   keeps long reading sessions comfortable.
+   ========================================================================== */
+.dark {
+  color-scheme: dark;
+
+  --bg-app: #0c1216;
+  --bg-app-raised: #131b21;
+  --bg-surface: #151e24;
+  --bg-surface-hover: #1c262d;
+  --bg-surface-active: #243039;
+  --bg-sunken: #0e161a;
+  --bg-overlay: rgb(5 9 11 / 0.66);
+
+  --border-subtle: #212c34;
+  --border-base: #2b3842;
+  --border-strong: #3c4c57;
+
+  --text-primary: #eaf1f4;
+  --text-secondary: #9dafba;
+  --text-tertiary: #6f818d;
+  --text-inverse: #0c1216;
+  --text-on-primary: #04161b;
+  --text-on-vivid: #0b1418;
+
+  --color-primary: var(--refrigerant-300);
+  --color-primary-hover: var(--refrigerant-200);
+  --color-primary-active: #8ecfdd;
+  --color-primary-bg: rgb(107 188 205 / 0.13);
+  --color-primary-bg-strong: rgb(107 188 205 / 0.22);
+  --color-primary-border: rgb(107 188 205 / 0.32);
+
+  --color-accent: var(--copper-300);
+  --color-accent-hover: var(--copper-200);
+  --color-accent-bg: rgb(231 155 104 / 0.14);
+
+  --color-success: #4cc294;
+  --color-success-hover: #6ed2ab;
+  --color-success-bg: rgb(76 194 148 / 0.14);
+  --color-success-border: rgb(76 194 148 / 0.28);
+
+  --color-danger: #f0777f;
+  --color-danger-hover: #f79aa0;
+  --color-danger-bg: rgb(240 119 127 / 0.14);
+  --color-danger-border: rgb(240 119 127 / 0.28);
+
+  --color-warning: #e5b14a;
+  --color-warning-hover: #eec36f;
+  --color-warning-bg: rgb(229 177 74 / 0.14);
+  --color-warning-border: rgb(229 177 74 / 0.28);
+
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-primary) 30%, transparent);
+
+  /* Stage colours, lifted for contrast on the dark field */
+  --stage-new:         #7fc9d8;
+  --stage-contacted:   #4fb3c8;
+  --stage-no-answer:   var(--steel-400);
+  --stage-negotiating: #2f9db5;
+  --stage-waiting:     #e5b14a;
+  --stage-catalog:     #e9a978;
+  --stage-price:       #e08b51;
+  --stage-proforma:    #d4743a;
+  --stage-invoice:     #48bb8c;
+  --stage-won:         #4cc294;
+  --stage-lost:        #f0777f;
+
+  --health-healthy:   #4cc294;
+  --health-attention: #e5b14a;
+  --health-risk:      #e79b68;
+  --health-critical:  #f0777f;
+
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.34);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.42), 0 1px 2px -1px rgb(0 0 0 / 0.32);
+  --shadow-md: 0 4px 10px -2px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.36);
+  --shadow-lg: 0 12px 24px -6px rgb(0 0 0 / 0.58), 0 4px 8px -4px rgb(0 0 0 / 0.4);
+  --shadow-xl: 0 24px 48px -12px rgb(0 0 0 / 0.68), 0 8px 16px -8px rgb(0 0 0 / 0.46);
+
+  /* Steel ramp flips so legacy `--steel-N` references stay legible */
+  --steel-25:  #0f171b;
+  --steel-50:  #131c21;
+  --steel-100: #1b252c;
+  --steel-150: #222d35;
+  --steel-200: #2b3842;
+  --steel-300: #3c4c57;
+  --steel-400: #6f818d;
+  --steel-500: #8ea0ab;
+  --steel-600: #9dafba;
+  --steel-700: #bccbd3;
+  --steel-800: #d5e0e6;
+  --steel-900: #eaf1f4;
+  --steel-950: #f6fafb;
+}
+
+/* ==========================================================================
+   LEGACY ALIASES
+   Older stylesheets in this codebase reference an earlier token vocabulary
+   (ink / paper / slate / indigo / brand-*). Several of those names were never
+   defined, which silently broke lead-status colours and the whole login
+   screen. They are mapped here so nothing resolves to an empty value.
+   ========================================================================== */
+:root, .dark {
+  --ink-950: var(--text-primary);
+  --ink-900: var(--steel-900);
+  --ink-800: var(--steel-800);
+  --ink-700: var(--steel-700);
+  --ink-600: var(--text-secondary);
+  --ink-500: var(--steel-500);
+  --ink-400: var(--text-tertiary);
+
+  --paper: var(--bg-app);
+  --steel-back: var(--bg-surface);
+
+  --slate-50:  var(--steel-50);
+  --slate-100: var(--steel-100);
+  --slate-200: var(--steel-200);
+  --slate-300: var(--steel-300);
+  --slate-400: var(--steel-400);
+  --slate-500: var(--steel-500);
+  --slate-600: var(--steel-600);
+  --slate-700: var(--steel-700);
+  --slate-800: var(--steel-800);
+  --slate-900: var(--steel-900);
+  --slate-950: var(--steel-950);
+
+  --indigo-300: var(--refrigerant-300);
+  --indigo-400: var(--refrigerant-400);
+  --indigo-500: var(--refrigerant-500);
+  --indigo-600: var(--refrigerant-600);
+  --indigo-700: var(--refrigerant-700);
+
+  --brand-blue-100: var(--color-primary-bg);
+  --brand-blue-400: var(--refrigerant-400);
+  --brand-blue-500: var(--color-primary);
+  --brand-blue-600: var(--color-primary-hover);
+
+  --brand-red-100: var(--color-danger-bg);
+  --brand-red-400: var(--rose-400);
+  --brand-red-500: var(--rose-500);
+  --brand-red-600: var(--color-danger);
+  --danger-100: var(--color-danger-bg);
+
+  --emerald-500-legacy: var(--emerald-500);
+  --rose-500-legacy: var(--rose-500);
+
+  --ease-spring: var(--ease-out);
+}

@@ -1,0 +1,125 @@
+/* ==========================================================================
+   Lead history — the lifecycle timeline
+   --------------------------------------------------------------------------
+   Grouped by day, because "what happened on Tuesday" is how people recall a
+   deal. Each event carries a category accent on its inline-start edge, the
+   same spine language the lead rows use.
+   ========================================================================== */
+
+.lh { display: flex; flex-direction: column; gap: var(--space-4); }
+
+/* --- Summary strip --- */
+.lh-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+}
+.lh-summary__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.lh-summary__item svg { color: var(--color-primary); }
+.lh-summary__badge {
+  margin-inline-start: auto;
+  padding: 3px var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+.lh-summary__badge--won  { background: var(--color-success-bg); color: var(--color-success); }
+.lh-summary__badge--lost { background: var(--color-danger-bg);  color: var(--color-danger); }
+
+.lh-loading, .lh-empty {
+  padding: var(--space-8);
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--text-md);
+}
+
+/* --- Day groups --- */
+.lh-timeline { display: flex; flex-direction: column; gap: var(--space-5); }
+.lh-day__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: var(--space-3);
+}
+.lh-day__title { font-size: var(--text-md); font-weight: 700; color: var(--text-primary); }
+.lh-day__count { font-size: var(--text-sm); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.lh-day__events { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* --- Event --- */
+.lh-event {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  border-inline-start-width: 3px;
+  border-inline-start-color: var(--border-strong);
+}
+.lh-event__icon {
+  width: 32px; height: 32px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg-surface-active);
+  color: var(--text-secondary);
+}
+.lh-event__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.lh-event__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.lh-event__title { font-size: var(--text-md); font-weight: 700; color: var(--text-primary); }
+.lh-event__time {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.lh-event__desc { font-size: var(--text-base); color: var(--text-secondary); line-height: var(--leading-normal); }
+.lh-event__meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
+
+.lh-event--milestone  { border-inline-start-color: var(--color-primary); }
+.lh-event--milestone .lh-event__icon  { background: var(--color-primary-bg); color: var(--color-primary); }
+.lh-event--alert      { border-inline-start-color: var(--color-warning); }
+.lh-event--alert .lh-event__icon      { background: var(--color-warning-bg); color: var(--color-warning); }
+.lh-event--deletion   { border-inline-start-color: var(--color-danger); }
+.lh-event--deletion .lh-event__icon   { background: var(--color-danger-bg); color: var(--color-danger); }
+.lh-event--resolution { border-inline-start-color: var(--color-success); }
+.lh-event--resolution .lh-event__icon { background: var(--color-success-bg); color: var(--color-success); }
+.lh-event--dup        { border-inline-start-color: var(--color-accent); }
+.lh-event--dup .lh-event__icon        { background: var(--color-accent-bg); color: var(--color-accent); }
+
+/* --- Chips --- */
+.lh-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-base);
+  color: var(--text-secondary);
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+  font-size: var(--text-sm);
+}
+.lh-chip b { color: var(--text-tertiary); font-weight: 600; }
+.lh-chip--actor {
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  border-color: var(--color-primary-border);
+  font-weight: 700;
+}
+.lh-chip--link { color: var(--color-primary); text-decoration: none; cursor: pointer; }
+.lh-chip--link:hover { border-color: var(--color-primary); }

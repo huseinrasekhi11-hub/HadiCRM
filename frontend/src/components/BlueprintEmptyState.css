@@ -1,0 +1,84 @@
+/* ==========================================================================
+   Large empty states
+   The white backgrounds and rotated gradient tile here were the loudest
+   decoration in the product and inverted badly. What remains states the
+   situation and offers the action.
+   ========================================================================== */
+
+.premium-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px var(--space-6);
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-base);
+  border-radius: var(--radius-xl);
+  text-align: center;
+  margin: var(--space-4) 0;
+}
+
+.premium-empty__icon-wrapper {
+  position: relative;
+  width: 64px; height: 64px;
+  display: grid;
+  place-items: center;
+  margin-bottom: var(--space-5);
+}
+.premium-empty__icon-bg {
+  position: absolute;
+  inset: 0;
+  background: var(--color-primary-bg);
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--radius-2xl);
+}
+.premium-empty__icon { position: relative; z-index: 1; color: var(--color-primary); }
+
+.premium-empty__title {
+  font-size: var(--text-xl);
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2);
+  letter-spacing: var(--tracking-tight);
+}
+.premium-empty__subtitle {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 40ch;
+  line-height: var(--leading-normal);
+}
+.premium-empty__action { margin-top: var(--space-5); }
+
+/* --- Mini empty (sidebars, dropdowns) --- */
+.crm-empty-mini {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  background: var(--bg-surface-hover);
+  border: 1px dashed var(--border-base);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+.crm-empty-mini__icon { color: var(--text-tertiary); margin-bottom: 2px; }
+
+/* --- Inbox zero banner --- */
+.inbox-zero-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  background: var(--color-success-bg);
+  border: 1px solid var(--color-success-border);
+  color: var(--color-success);
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-md);
+  font-weight: 700;
+}

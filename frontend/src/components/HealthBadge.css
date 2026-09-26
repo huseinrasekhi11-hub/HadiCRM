@@ -1,0 +1,52 @@
+/* ==========================================================================
+   Health badge
+   --------------------------------------------------------------------------
+   A single record's temperature. The dot alone carries the state in compact
+   rows; the label appears only at the large size, where there is room for
+   it. The old label colour mixed toward black, which disappeared against a
+   dark surface — it now derives from the health tone itself.
+   ========================================================================== */
+
+.health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: color-mix(in srgb, var(--health-color) 12%, transparent);
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--health-color) 26%, transparent);
+  white-space: nowrap;
+  line-height: 1;
+}
+.health-badge--lg { padding: 5px 11px; }
+
+.health-badge__dot-wrapper {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 8px; height: 8px;
+  flex-shrink: 0;
+}
+.health-badge__dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background-color: var(--health-color);
+  position: relative;
+  z-index: 2;
+}
+/* Only a critical or at-risk file pulses. Everything calm stays still, so
+   movement in a long list always means something. */
+.health-badge__ping {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background-color: var(--health-color);
+  animation: healthPing 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+  z-index: 1;
+}
+
+.health-badge__label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: color-mix(in srgb, var(--health-color) 82%, var(--text-primary));
+}

@@ -1,0 +1,49 @@
+[project]
+name = "hadiflow"
+version = "0.1.0"
+description = "HadiFlow CRM & Workflow Management System"
+requires-python = ">=3.11"
+
+# ==========================================================
+# Ruff — linting
+# ==========================================================
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+exclude = [
+    ".venv",
+    "venv",
+    "alembic/versions",
+    "__pycache__",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "I", "UP"]
+ignore = [
+    # FastAPI's dependency-injection idiom is `x = Depends(...)` in the
+    # signature; B008 flags it but it is correct and required here.
+    "B008",
+    # `Lead.is_deleted == False` builds a SQL expression; `is False`
+    # would evaluate in Python and break the query. E712 must stay off.
+    "E712",
+    # Long Persian strings in user-facing messages.
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Model/package re-exports exist so Alembic autogenerate can see metadata.
+"app/models/__init__.py" = ["F401"]
+"tests/*" = ["F401", "E402"]
+
+# ==========================================================
+# Pytest
+# ==========================================================
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: tests that require a live PostgreSQL database",
+]

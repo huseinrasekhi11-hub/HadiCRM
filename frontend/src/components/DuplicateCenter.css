@@ -1,0 +1,223 @@
+/* ==========================================================================
+   Duplicate centre
+   --------------------------------------------------------------------------
+   When the same mobile number is submitted again, the new entry attaches to
+   the existing file instead of forking it. This tab shows every submission
+   side by side and flags the fields that disagree with the original, so a
+   rep can see whether the customer changed their requirement or whether
+   someone simply mistyped a name.
+   ========================================================================== */
+
+.dup-center { display: flex; flex-direction: column; gap: var(--space-5); }
+
+/* --- Summary --- */
+.dup-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+}
+.dup-summary__item { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.dup-summary__label { font-size: var(--text-xs); font-weight: 600; color: var(--text-tertiary); }
+.dup-summary__value {
+  font-size: var(--text-xl);
+  font-weight: 800;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+/* Dates share the slot with counts but must not shout like a number. */
+.dup-summary__value--sm { font-size: var(--text-base); font-weight: 700; }
+
+/* --- Sections --- */
+.dup-section { display: flex; flex-direction: column; gap: var(--space-3); }
+.dup-section__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+.dup-section__title svg { color: var(--color-accent); }
+.dup-section__count {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: var(--color-accent-bg);
+  color: var(--color-accent);
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+}
+.dup-section__hint { font-size: var(--text-sm); color: var(--text-tertiary); line-height: var(--leading-normal); }
+
+/* --- Submission card --- */
+.dup-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface);
+}
+/* The canonical record is what everything else is compared against, so it is
+   marked rather than left to position alone. */
+.dup-card--original {
+  border-inline-start: 3px solid var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 3.5%, var(--bg-surface));
+}
+
+.dup-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.dup-card__index {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.dup-match-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-success);
+  background: var(--color-success-bg);
+  border: 1px solid var(--color-success-border);
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+}
+
+.dup-card__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+@media (max-width: 560px) { .dup-card__grid { grid-template-columns: 1fr; } }
+
+.dup-card__notes {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+  background: var(--bg-surface-hover);
+  padding: var(--space-2) 10px;
+  border-radius: var(--radius-sm);
+}
+.dup-card__foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  border-top: 1px dashed var(--border-base);
+  padding-top: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+.dup-meta-dot { color: var(--text-tertiary); opacity: 0.6; }
+
+/* --- Field rows ---------------------------------------------------------
+   A field that disagrees with the original is tinted copper — the same warm
+   tone the rest of the app uses for "look at this".
+   ------------------------------------------------------------------------ */
+.dup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+}
+.dup-field--diff {
+  background: var(--color-accent-bg);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+.dup-field__label {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.dup-field__diff-tag { font-size: var(--text-2xs); font-weight: 700; color: var(--color-accent); }
+.dup-field__value {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.dup-field__value--ltr {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Loading / empty --- */
+.dup-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-base);
+  color: var(--text-tertiary);
+  padding: var(--space-3) 0;
+}
+.dup-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  background: var(--bg-surface-hover);
+  border: 1px dashed var(--border-base);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+}
+.dup-empty--ok { color: var(--color-success); border-color: var(--color-success-border); }
+
+/* --- Related leads --- */
+.dup-related-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  padding: 10px var(--space-3);
+  background: var(--bg-surface);
+  cursor: pointer;
+  text-align: start;
+  transition: border-color var(--duration-fast) var(--ease-standard),
+              background-color var(--duration-fast) var(--ease-standard);
+}
+.dup-related-row:hover { border-color: var(--border-strong); background: var(--bg-surface-hover); }
+.dup-related-row__bar {
+  width: 3px;
+  align-self: stretch;
+  min-height: 30px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+}
+.dup-related-row__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.dup-related-row__name {
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dup-related-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+.dup-related-row__chevron { color: var(--text-tertiary); flex-shrink: 0; }

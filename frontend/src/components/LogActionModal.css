@@ -1,0 +1,72 @@
+/* ==========================================================================
+   Log-action modal
+   --------------------------------------------------------------------------
+   The action-type row and the follow-up panel both used hardcoded white
+   chips on a `--paper` background, so the whole modal inverted badly. The
+   follow-up prompt also relied on Tailwind classes that were never defined,
+   which left it at default browser weight — the most important question in
+   the form looked like body text.
+   ========================================================================== */
+
+.log-action-modal { max-width: 560px; }
+
+/* --- Action type --- */
+.action-type-selector {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-2);
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+}
+.action-type-selector::-webkit-scrollbar { display: none; }
+
+.action-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 13px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              border-color var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard);
+}
+.action-chip:hover { border-color: var(--border-strong); background: var(--bg-surface-hover); color: var(--text-primary); }
+.action-chip--active {
+  background: var(--color-primary-bg);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.action-chip__emoji { font-size: 14px; line-height: 1; }
+
+/* --- Follow-up panel --- */
+.followup-panel {
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-top: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.followup-panel__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.followup-panel__header svg { color: var(--color-primary); }

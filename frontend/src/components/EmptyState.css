@@ -1,0 +1,39 @@
+/* ==========================================================================
+   Empty state
+   An empty screen is an invitation to act, so the icon is quiet and the
+   action is the loudest thing in the block.
+   ========================================================================== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  padding: 56px var(--space-6);
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-base);
+  border-radius: var(--radius-lg);
+}
+.empty-state--compact { padding: 28px var(--space-4); gap: 6px; }
+
+.empty-state__icon-wrap {
+  width: 52px; height: 52px;
+  border-radius: var(--radius-xl);
+  display: grid;
+  place-items: center;
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  margin-bottom: var(--space-1);
+}
+.empty-state--compact .empty-state__icon-wrap { width: 40px; height: 40px; border-radius: var(--radius-lg); }
+
+.empty-state__title { font-size: var(--text-lg); font-weight: 700; margin: 0; color: var(--text-primary); }
+.empty-state__subtitle {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 40ch;
+  line-height: var(--leading-normal);
+}
+.empty-state__action { margin-top: var(--space-3); }
