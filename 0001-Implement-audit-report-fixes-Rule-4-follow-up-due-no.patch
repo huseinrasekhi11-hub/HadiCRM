@@ -1,0 +1,3508 @@
+From 546b05e24da1953723a8e12bc5a08ceaad41f70d Mon Sep 17 00:00:00 2001
+From: huseinrasekhi11-hub <huseinrasekhi11-hub@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 06:37:36 +0000
+Subject: [PATCH] Implement audit report fixes + Rule 4 follow-up-due
+ notifications
+
+Security (closes the report's NOT-FIXED items):
+- Refresh-token rotation + server-side revocation (refresh_sessions
+  table, family reuse-detection, POST /auth/logout, revocation on
+  user deactivation, daily cleanup job)
+- Login rate limiting: sliding-window 429+Retry-After per
+  (IP+canonical mobile) and per IP
+- Canonical user identity: users.mobile_normalized (unique, backfilled,
+  auto-synced via ORM event); login works with any equivalent mobile form
+- Scheduler jobs guarded by pg advisory locks (multi-worker safe)
+- Audit-log write failures now logged structurally (app_logger.exception)
+- Uniform 401 for inactive-account logins (no account-state enumeration)
+- DEBUG=False default; SECRET_KEY < 32 bytes fails startup
+- CI workflow (pytest on PostgreSQL 15 service + oxlint + vite build)
+- TLS/ingress + multi-replica deployment docs in backend/README.md
+
+Audit fixes that were missing from this repo:
+- Alembic baseline downgrade now raises (was: dropped production tables)
+- e84148be659e downgrade preserves parent columns (created_at/is_active)
+- ETag responses Vary: Authorization (200 + 304 paths)
+- Dashboard analytics on Tehran calendar-day boundaries; date-only
+  date_to inclusive at the API boundary (Gregorian + Jalali)
+- DB-aware GET /health + Docker/Compose healthchecks switched to it
+- Orphaned-upload cleanup when create_attachment() fails
+- get_notifications excludes soft-deleted leads and canceled tasks
+- Security headers extracted to app/middleware/security_headers.py
+- jdatetime 5.0.0 -> 5.3.0; .env.example hardened; vercel.json newline
+- Frontend: epoch-namespaced request cache, cross-tab auth sync via
+  storage events, rotated refresh token persisted, server-side logout
+
+Feature (Rule 4, merged surgically from the fix-notis package onto the
+post-audit baseline so BIGINT/index/advisory-lock fixes are kept):
+- follow_up_notified one-shot flag + migration b7c4d9e1a203 (retargeted
+  to current head b7c8d9e0f1a2)
+- check_due_followups job (every 5 min, per-lead error isolation)
+- Flag reset in create_activity + update_lead_followup
+- follow_up_due type in NotificationBell/NotificationCenter UI
+
+Tests: 198 passed on live PostgreSQL 15 (fresh upgrade head -> seed ->
+full suite); frontend npm ci + build + lint with 0 errors.
+New: tests/test_refresh_rotation.py (11), tests/test_audit_unit_regressions.py (20),
+tests/test_followup_due_reminders.py (5).
+---
+ .github/workflows/ci.yml                      |  88 +++++
+ CHANGES.md                                    |  68 ++++
+ backend/.env.example                          |   8 +-
+ backend/CHANGELOG.md                          |  28 ++
+ backend/Dockerfile                            |   2 +-
+ backend/README.md                             |  41 +++
+ .../b0c1d2e3f4a5_baseline_core_tables.py      |  28 +-
+ ...d9e1a203_add_follow_up_notified_to_lead.py |  54 +++
+ .../c9f3a7d1e5b8_add_refresh_sessions.py      |  84 +++++
+ ...d2e6b4a8c1f5_add_user_mobile_normalized.py |  90 +++++
+ .../e84148be659e_update_user_fields.py        |   9 +-
+ backend/app/api/routes/auth.py                |  78 ++++-
+ backend/app/api/routes/dashboard.py           |  32 +-
+ backend/app/api/routes/leads.py               |  11 +-
+ backend/app/auth/jwt_handler.py               |  12 +-
+ backend/app/config/settings.py                |  31 +-
+ backend/app/core/rate_limit.py                | 149 +++++++++
+ backend/app/crud/activity.py                  |   5 +
+ backend/app/crud/audit_log.py                 |  25 +-
+ backend/app/crud/dashboard.py                 |  38 ++-
+ backend/app/crud/lead.py                      |   7 +
+ backend/app/crud/notification.py              |  22 +-
+ backend/app/crud/user.py                      |  36 ++
+ backend/app/main.py                           |  41 ++-
+ backend/app/middleware/etag.py                |  17 +
+ backend/app/middleware/security_headers.py    |  36 ++
+ backend/app/models/__init__.py                |   1 +
+ backend/app/models/lead.py                    |  13 +
+ backend/app/models/notification.py            |   1 +
+ backend/app/models/refresh_session.py         |  98 ++++++
+ backend/app/models/user.py                    |  34 ++
+ backend/app/scheduler/jobs.py                 | 186 ++++++++++-
+ backend/app/schemas/auth.py                   |   6 +
+ backend/app/services/__init__.py              |   0
+ backend/app/services/auth_service.py          | 210 ++++++++++++
+ backend/docker-compose.yml                    |   7 +-
+ backend/requirements.txt                      |   2 +-
+ backend/tests/test_audit_unit_regressions.py  | 314 ++++++++++++++++++
+ backend/tests/test_followup_due_reminders.py  | 300 +++++++++++++++++
+ backend/tests/test_refresh_rotation.py        | 289 ++++++++++++++++
+ frontend/src/api/client.js                    |  39 ++-
+ frontend/src/api/requestCache.js              |  26 +-
+ frontend/src/components/NotificationBell.jsx  |   1 +
+ frontend/src/context/AuthContext.jsx          |  33 +-
+ frontend/src/pages/NotificationCenter.jsx     |   1 +
+ frontend/vercel.json                          |   2 +-
+ 46 files changed, 2509 insertions(+), 94 deletions(-)
+ create mode 100644 .github/workflows/ci.yml
+ create mode 100644 backend/alembic/versions/b7c4d9e1a203_add_follow_up_notified_to_lead.py
+ create mode 100644 backend/alembic/versions/c9f3a7d1e5b8_add_refresh_sessions.py
+ create mode 100644 backend/alembic/versions/d2e6b4a8c1f5_add_user_mobile_normalized.py
+ create mode 100644 backend/app/core/rate_limit.py
+ create mode 100644 backend/app/middleware/security_headers.py
+ create mode 100644 backend/app/models/refresh_session.py
+ create mode 100644 backend/app/services/__init__.py
+ create mode 100644 backend/tests/test_audit_unit_regressions.py
+ create mode 100644 backend/tests/test_followup_due_reminders.py
+ create mode 100644 backend/tests/test_refresh_rotation.py
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..00523cc
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,88 @@
++name: CI
++
++on:
++  push:
++    branches: [main]
++  pull_request:
++
++jobs:
++  backend:
++    name: Backend (pytest + alembic on PostgreSQL)
++    runs-on: ubuntu-latest
++
++    services:
++      postgres:
++        image: postgres:15-alpine
++        env:
++          POSTGRES_USER: hadiflow
++          POSTGRES_PASSWORD: hadiflow123
++          POSTGRES_DB: hadiflow_test
++        ports:
++          - 5432:5432
++        options: >-
++          --health-cmd "pg_isready -U hadiflow"
++          --health-interval 10s
++          --health-timeout 5s
++          --health-retries 5
++
++    defaults:
++      run:
++        working-directory: backend
++
++    env:
++      SECRET_KEY: ci-only-secret-not-for-production-use-48bytes
++      DATABASE_URL: postgresql+psycopg2://hadiflow:hadiflow123@localhost:5432/hadiflow_test
++      ENABLE_SCHEDULER: "false"
++
++    steps:
++      - uses: actions/checkout@v4
++
++      - uses: actions/setup-python@v5
++        with:
++          python-version: "3.11"
++          cache: pip
++          cache-dependency-path: backend/requirements.txt
++
++      - name: Install dependencies
++        run: |
++          python -m pip install --upgrade pip
++          pip install -r requirements.txt
++          pip install pytest httpx
++
++      - name: Byte-compile check
++        run: python -m compileall -q app alembic
++
++      - name: Run migrations (fresh database, single head)
++        run: alembic upgrade head
++
++      - name: Seed test admin (suite contract 09120000000)
++        run: python -m app.scripts.seed_admin
++
++      - name: Run backend test suite
++        run: pytest -q
++
++  frontend:
++    name: Frontend (lint + build)
++    runs-on: ubuntu-latest
++
++    defaults:
++      run:
++        working-directory: frontend
++
++    steps:
++      - uses: actions/checkout@v4
++
++      - uses: actions/setup-node@v4
++        with:
++          node-version: "22"
++          cache: npm
++          cache-dependency-path: frontend/package-lock.json
++
++      - name: Install dependencies
++        run: npm ci --no-audit --no-fund
++
++      - name: Lint (oxlint)
++        run: npm run lint
++
++      - name: Build (vite)
++        run: npm run build
+diff --git a/CHANGES.md b/CHANGES.md
+index 81fc3b3..e90b057 100644
+--- a/CHANGES.md
++++ b/CHANGES.md
+@@ -148,3 +148,71 @@ was confirmed to fail with the fix reverted. Final suite: 162 passed.
+ - Access tokens live in `localStorage` (XSS-exposed by design; consider httpOnly cookies).
+ - `status_updated_at` is naive Tehran time while everything else is UTC; `days`-window filters in charts/top-products compare it against UTC (≈3.5 h skew). Documented design debt.
+ - Docker image build / compose could not be exercised in this sandbox (no Docker daemon).
++
++---
++
++# Audit implementation round — 2026-09-26 (HadiFlow_AUDIT_REPORT.md + Rule 4)
++
++این دور، مواردِ باقی‌مانده‌ی گزارش ممیزی (`HadiFlow_AUDIT_REPORT.md`) و
++فیچر «قانون ۴» (یادآوری سررسید پیگیری، از بسته‌ی fix-notis) را روی
++همین مخزن پیاده‌سازی می‌کند. همه‌ی تغییرات با PostgreSQL واقعی و
++اجرای کامل suite تست‌ها (۱۹۸ تست سبز) و build/lint فرانت‌اند
++(۰ خطا) راستی‌آزمایی شده‌اند.
++
++## امنیت — موارد «NOT FIXED» گزارش که حالا بسته شدند
++
++| سطح | مورد | پیاده‌سازی |
++|---|---|---|
++| HIGH | Refresh-token replay / نبود revocation سمت سرور | جدول `refresh_sessions` (مهاجرت `c9f3a7d1e5b8`) + `app/services/auth_service.py`: هر لاگین یک نشست با `jti` ثبت می‌کند؛ هر `/auth/refresh-token` توکن را **rotate** می‌کند (مصرف توکن قدیم = ابطال + `replaced_by_jti`)؛ استفاده‌ی مجدد از توکن مصرف‌شده **کل خانواده** را باطل می‌کند (reuse detection). اندپوینت جدید `POST /auth/logout` نشست را سمت سرور باطل می‌کند. غیرفعال‌سازی کاربر همه‌ی نشست‌های فعالش را revoke می‌کند. job روزانه‌ی زمان‌بند نشست‌های منقضی را پاک‌سازی می‌کند. فرانت‌اند توکن چرخش‌یافته را ذخیره می‌کند و logout واقعی صدا می‌زند. تست‌ها: `tests/test_refresh_rotation.py` |
++| HIGH | نبود login rate limiting | `app/core/rate_limit.py`: sliding-window درون‌فرایندی — ۵ شکست به ازای هر (IP + شماره‌ی canonical) و ۳۰ شکست به ازای هر IP در پنجره‌ی ۱۵ دقیقه → `429` با `Retry-After`. ورود موفق بودجه‌ی همان حساب را بازمی‌گرداند (نه بودجه‌ی IP را). تنظیمات از `.env` (`LOGIN_*`). محدودیت چندنسخه‌ای در README مستند شد. |
++| MEDIUM | هویت موبایل کاربر نرمال نبود | ستون `users.mobile_normalized` (مهاجرت `d2e6b4a8c1f5` با backfill قطعی + ایندکس یکتا)، همگام‌سازی خودکار با event listener روی insert/update، و lookup هویت در `get_user_by_mobile` اول canonical بعد raw. لاگین با «+98912…» / «۰۹۱۲…» / «0912…» یک کاربر را پیدا می‌کند؛ ساخت حساب دوم با شماره‌ی معادل → ۴۰۰/۴۰۹. |
++| MEDIUM | Scheduler در چند worker تکراری اجرا می‌شد | هر job با `pg_try_advisory_lock` (دکوریتور `@single_instance`) محافظت می‌شود؛ نمونه‌ی دوم همان tick را skip می‌کند. |
++| MEDIUM | Audit-log fail-open بی‌صدا | `create_audit_log` به‌جای `print` با `app_logger.exception` و برچسب `AUDIT LOG WRITE FAILED` ثبت می‌کند (غیرکشنده ولی قابل‌هشدار/مانیتور). |
++| MEDIUM | نبود CI | `.github/workflows/ci.yml`: بک‌اند روی سرویس PostgreSQL ۱۵ (migrate → seed → pytest) + فرانت‌اند (npm ci → oxlint → vite build). |
++| MEDIUM | مرز TLS مستند نبود | بخش «استقرار و مرزهای امنیتی» در `backend/README.md` + کامنت ingress روی پورت ۸۰۰۰ در compose. |
++| MEDIUM | شمارش خلاصه‌ی نوتیفیکیشن کهنه | `get_notifications` حالا لیدهای soft-delete و وظایف canceled را نمی‌شمارد. |
++| MEDIUM | localStorage توکن‌ها | **مهاجرت به کوکی HttpOnly/BFF انجام نشد** (تغییر معماری بزرگ، نیازمند E2E مرورگری)؛ ریسک با rotation + revocation سمت سرور + نبود sink ناامن + همگام‌سازی بین‌تبی کاهش یافت و در README مستند شد. |
++
++## باگ‌فیکس‌های گزارش ممیزی که در این مخزن جا مانده بودند
++
++| مورد | پیاده‌سازی |
++|---|---|
++| HIGH — downgrade بیس‌لاین Alembic می‌توانست جداول تولید را drop کند | `b0c1d2e3f4a5.downgrade()` حالا `RuntimeError` می‌دهد (غیرقابل بازگشتِ عمدی، با راهنمای rollback دستی). |
++| MEDIUM — downgrade مهاجرت فیلدهای کاربر، ستون‌های والد را drop می‌کرد | `e84148be659e.downgrade()` فقط `is_superuser/updated_at/last_login` را برمی‌دارد؛ `created_at/is_active` متعلق به `6ea849d71db2` حفظ می‌شوند (روی DB واقعی تست شد). |
++| MEDIUM — ETag بدون `Vary: Authorization` | پاسخ‌های ETagدارِ احراز هویتی‌شده حالا `Vary: Authorization` می‌گیرند (در هر دو مسیر ۲۰۰ و ۳۰۴، با حفظ Vary قبلی مثل Origin). |
++| MEDIUM — قاطی‌شدن UTC/تهران در چارت‌های میلادی + `date_to` غیرفراگیر | `_daily_sales_gregorian`، `get_sales_by_user` و `get_sales_trend` با کران‌های naive-تهران کار می‌کنند؛ ورودی‌های فقط-تاریخ در مرز API به «روز تقویمی تهران» تفسیر می‌شوند و `date_to` فقط-تاریخ با `inclusive_end=True` کل روز پایان را پوشش می‌دهد (جلالی و میلادی). `+1 day` قبلیِ crud جلالی که به datetime صریح هم یک روز اضافه می‌کرد حذف شد. |
++| MEDIUM — فایل آپلودشده در صورت شکست DB یتیم می‌ماند | خطای `create_attachment()` فایلِ تازه‌نوشته‌شده را پاک می‌کند. |
++| MEDIUM — healthcheck فقط فرایند HTTP را می‌دید | اندپوینت جدید `GET /health` با `SELECT 1` واقعی روی DB (۵۰۳ در خرابی)؛ healthcheckهای Dockerfile و compose به آن سوییچ شدند. |
++| LOW/MEDIUM — ۴۰۳ متمایز برای حساب غیرفعال (enumeration) | ورود حساب غیرفعال هم همان ۴۰۱ عمومی «شماره موبایل یا رمز عبور اشتباه است» را می‌گیرد. |
++| HIGH — دیفالت‌های ناامن تنظیمات | `DEBUG=False` پیش‌فرض؛ `SECRET_KEY` زیر ۳۲ بایت حالا **خطای استارت‌آپ** است (نه warning)؛ `.env.example` به‌روز شد. |
++| LOW — `jdatetime==5.0.0` | به `5.3.0` ارتقا یافت (سازگاری Python 3.13). |
++| LOW — security headers داخل main.py | به میدل‌ور مستقل `app/middleware/security_headers.py` منتقل شد (رفتار یکسان). |
++| INFO — frontend cache/نشست | کش درخواست‌ها epoch-محور شد (نشت داده بین حساب‌ها حتی در raceهای in-flight غیرممکن) + همگام‌سازی احراز هویت بین تب‌ها (رویداد `storage`): logout در یک تب همه‌ی تب‌ها را خارج می‌کند. |
++| — | `frontend/vercel.json` newline انتهایی گرفت. `logo.png` چون اینک در `public/` موجود است، ارجاعات `/logo.png` معتبرند (مورد ۱۲ گزارش دیگر موضوعیت ندارد). |
++
++## فیچر — قانون ۴: یادآوری سررسید پیگیری (از بسته‌ی fix-notis)
++
++هنگام فرارسیدن `next_follow_up` یک لید باز، کارشناس مسئول یک
++نوتیفیکیشن `follow_up_due` می‌گیرد (job هر ۵ دقیقه). پرچم یک‌بارمصرف
++`follow_up_notified` (ستون جدید + مهاجرت `b7c4d9e1a203`) از تکرار
++پیشگیری می‌کند و با تنظیم/پاک‌کردن سررسید توسط کارشناس (در
++`create_activity` و `update_lead_followup`) بازنشانی می‌شود. لیدهای
++بسته/حذف‌شده و مالکان غیرفعال یادآوری نمی‌گیرند. UI: آیکون/برچسب
++«سررسید پیگیری» در NotificationBell و NotificationCenter.
++تست‌ها: `tests/test_followup_due_reminders.py` (۵ تست یکپارچه‌سازی).
++
++نکته‌ی ادغام: بسته‌ی fix-notis روی بیسلاینِ قدیمی‌تر از
++`b7c8d9e0f1a2` ساخته شده بود؛ تغییرات به‌صورت surgical روی کد فعلی
++merge شدند تا فیکس‌های قبلی (BIGINT، ایندکس‌ها، advisory-lock
++لید تکراری، app_logger، تیم فروش ادمین) برگشت نخورند. `down_revision`
++مهاجرت به head فعلی زنجیر شد.
++
++## تست‌های جدید
++
++- `tests/test_refresh_rotation.py` — ۱۱ تست یکپارچه‌سازی (rotation، reuse→family revocation، logout، غیرفعال‌سازی، هویت canonical، rate limit).
++- `tests/test_audit_unit_regressions.py` — ۲۰ تست بدون DB (settings، downgradeها، ETag Vary، security headers، مرزهای داشبورد، rate limiter، گراف مهاجرت‌ها).
++- `tests/test_followup_due_reminders.py` — ۵ تست یکپارچه‌سازی قانون ۴.
++
++وضعیت: **۱۹۸ تست سبز** روی PostgreSQL 15 واقعی (fresh `alembic upgrade head`،
++۱۸ مهاجرت، single head)؛ فرانت‌اند `npm ci && npm run build && npm run lint`
++با ۰ خطا.
+diff --git a/backend/.env.example b/backend/.env.example
+index d220aed..4c33f5d 100644
+--- a/backend/.env.example
++++ b/backend/.env.example
+@@ -19,7 +19,8 @@
+ ###############################################################
+ 
+ PROJECT_NAME=HadiFlow
+-DEBUG=true
++# پیش‌فرض امن: false — فقط در محیط توسعه به‌صراحت true بگذارید
++DEBUG=false
+ 
+ ###############################################################
+ # Database
+@@ -38,8 +39,9 @@ POSTGRES_DB=hadiflow
+ # Security
+ ###############################################################
+ 
+-# یک رشته‌ی تصادفی و طولانی؛ مثلاً: python -c "import secrets; print(secrets.token_urlsafe(64))"
+-SECRET_KEY=
++# اجباری؛ حداقل ۳۲ بایت. یک رشته‌ی تصادفی و طولانی بسازید:
++# python -c "import secrets; print(secrets.token_urlsafe(64))"
++SECRET_KEY=CHANGE_ME_min_32_bytes_random_string
+ 
+ ALGORITHM=HS256
+ ACCESS_TOKEN_EXPIRE_MINUTES=60
+diff --git a/backend/CHANGELOG.md b/backend/CHANGELOG.md
+index 0fb6b6a..689600a 100644
+--- a/backend/CHANGELOG.md
++++ b/backend/CHANGELOG.md
+@@ -12,3 +12,31 @@
+ - ایجاد ساختار اولیه
+ - ایجاد Repository
+ - ایجاد معماری پروژه
++
++---
++
++## Version 0.2.0 — پیاده‌سازی کامل گزارش ممیزی + قانون ۴
++
++### امنیت
++- چرخش و ابطال سمت‌سرور refresh token (جدول refresh_sessions، تشخیص replay، خانواده‌ی نشست)
++- اندپوینت POST /auth/logout (ابطال واقعی نشست)
++- محدودسازی نرخ ورود (۴۲۹ + Retry-After) برای brute-force/credential stuffing
++- ستون canonical شماره موبایل کاربر + لاگین با هر فرمت معادل
++- قفل advisory برای jobهای زمان‌بند در استقرار چند worker
++- پاسخ یکسان ۴۰۱ برای حساب غیرفعال (رفع enumeration)
++- DEBUG=False پیش‌فرض؛ SECRET_KEY زیر ۳۲ بایت = خطای استارت‌آپ
++- لاگ ساختاریافته برای شکست نوشتن audit log
++
++### صحت/پایداری
++- GET /health با بررسی واقعی دیتابیس (healthcheckهای Docker به آن سوییچ شدند)
++- Vary: Authorization روی پاسخ‌های ETag احراز هویتی‌شده
++- مرزهای زمانی داشبورد بر مبنای روز تقویمی تهران؛ date_to فقط-تاریخ فراگیر
++- downgrade بیس‌لاین Alembic غیرقابل‌بازگشت (جلوگیری از حذف جداول تولید)
++- downgrade مهاجرت فیلدهای کاربر فقط ستون‌های خودش را برمی‌دارد
++- پاک‌سازی فایل آپلودشده در صورت شکست ثبت DB
++- jdatetime → 5.3.0
++
++### فیچر
++- قانون ۴: نوتیفیکیشن follow_up_due هنگام سررسید next_follow_up (پرچم یک‌بارمصرف follow_up_notified)
++- میدل‌ور مستقل security_headers
++- CI گیت‌های کامل (pytest روی Postgres ۱۵ + lint + build)
+diff --git a/backend/Dockerfile b/backend/Dockerfile
+index 4f84b07..b84e418 100644
+--- a/backend/Dockerfile
++++ b/backend/Dockerfile
+@@ -33,6 +33,6 @@ USER appuser
+ EXPOSE 8000
+ 
+ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+-    CMD curl -f http://localhost:8000/ || exit 1
++    CMD curl -f http://localhost:8000/health || exit 1
+ 
+ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+diff --git a/backend/README.md b/backend/README.md
+index aebcbf9..a0a0a67 100644
+--- a/backend/README.md
++++ b/backend/README.md
+@@ -86,6 +86,47 @@ docker/
+ 
+ ---
+ 
++## استقرار و مرزهای امنیتی (Deployment & Security Boundaries)
++
++### TLS / Reverse Proxy — الزامی برای تولید
++
++`docker-compose.yml` پورت `8000` سرویس API را مستقیماً روی میزبان
++publish می‌کند و **TLS در این مخزن terminate نمی‌شود**. این طراحی
++عمدی است: انتظار می‌رود در تولید، یک reverse proxy / load balancer
++(nginx، Caddy، Traefik یا سرویس مدیریت‌شده) جلوی API بنشیند و:
++
++1. TLS (HTTPS) را terminate کند؛
++2. هدر `X-Forwarded-For` را به‌درستی ست کند (rate limiter لاگین به آن
++   تکیه می‌کند)؛
++3. در صورت امکان پورت 8000 را فقط از همان proxy قابل‌دسترس کند
++   (مثلاً bind به `127.0.0.1:8000:8000` در compose وقتی proxy روی
++   همان میزبان است).
++
++هرگز این compose را بدون لایه‌ی TLS مستقیماً روی اینترنت عمومی
++قرار ندهید — توکن‌های JWT و رمزهای عبور بدون رمزنگاری منتقل می‌شوند.
++
++### چند نمونه‌ای (multi-worker / multi-replica)
++
++- **Scheduler:** هر فرایند API که `ENABLE_SCHEDULER=true` دارد،
++  jobها را اجرا می‌کند. jobها اکنون با `pg_try_advisory_lock` محافظت
++  می‌شوند (در هر لحظه فقط یک نمونه هر job را اجرا می‌کند)، ولی برای
++  کاهش کار تکراری در استقرار چندنسخه‌ای همچنان توصیه می‌شود روی
++  همه‌ی نمونه‌ها به‌جز یکی `ENABLE_SCHEDULER=false` تنظیم شود.
++- **Rate limiter لاگین:** در حافظه‌ی هر فرایند است؛ با N replica
++  بودجه‌ی مجاز عملاً N برابر می‌شود. برای استقرار بزرگ، throttling
++  مشترک (Redis یا edge/gateway) جلوی سرویس اضافه کنید.
++
++### توکن‌ها در مرورگر
++
++access/refresh tokenها در `localStorage` نگهداری می‌شوند. ریسک آن
++(XSS → سرقت توکن) با نبودِ sink ناامنِ HTML در فرانت‌اند، چرخش
++refresh token در هر استفاده، ابطال سمت سرور (logout/غیرفعال‌سازی/
++تشخیص replay) و همگام‌سازی نشست بین تب‌ها کاهش یافته، اما حذف کامل
++آن نیازمند مهاجرت به کوکی‌های HttpOnly/SameSite یا معماری BFF است
++(به‌عنوان کار آتی مستند شده است).
++
++---
++
+ ## نویسندگان
+ 
+ Project Owner
+diff --git a/backend/alembic/versions/b0c1d2e3f4a5_baseline_core_tables.py b/backend/alembic/versions/b0c1d2e3f4a5_baseline_core_tables.py
+index d5ab991..c10c3c6 100644
+--- a/backend/alembic/versions/b0c1d2e3f4a5_baseline_core_tables.py
++++ b/backend/alembic/versions/b0c1d2e3f4a5_baseline_core_tables.py
+@@ -209,17 +209,17 @@ def upgrade() -> None:
+ 
+ 
+ def downgrade() -> None:
+-    # Reverse only what this baseline created; guard everything so a
+-    # create_all-bootstrapped database is unaffected.
+-    users_cols = _columns("users") if "users" in _tables() else {}
+-    if "permissions" in users_cols:
+-        op.drop_column("users", "permissions")
+-    if "role" in users_cols:
+-        op.drop_column("users", "role")
+-    if "mobile" in users_cols:
+-        op.drop_column("users", "mobile")
+-
+-    tables = _tables()
+-    for table in ("activities", "tasks", "leads"):
+-        if table in tables:
+-            op.drop_table(table)
++    # SECURITY/DATA-LOSS GUARD: this baseline is deliberately idempotent —
++    # it may discover that leads/tasks/activities already exist because an
++    # older deployment created them outside Alembic (create_all era). There
++    # is no durable marker telling us whether THIS revision created each
++    # table, so an automated downgrade here could silently drop production
++    # CRM tables full of customer data. The rollback is therefore refused
++    # on purpose; operators must perform a reviewed manual rollback or a
++    # backup restore instead.
++    raise RuntimeError(
++        "Downgrading the b0c1d2e3f4a5 baseline is disabled on purpose: it "
++        "cannot distinguish tables this migration created from pre-existing "
++        "production tables, and dropping them would destroy CRM data. Use a "
++        "reviewed manual rollback or restore from backup instead."
++    )
+diff --git a/backend/alembic/versions/b7c4d9e1a203_add_follow_up_notified_to_lead.py b/backend/alembic/versions/b7c4d9e1a203_add_follow_up_notified_to_lead.py
+new file mode 100644
+index 0000000..38f542f
+--- /dev/null
++++ b/backend/alembic/versions/b7c4d9e1a203_add_follow_up_notified_to_lead.py
+@@ -0,0 +1,54 @@
++"""add follow_up_notified to lead (Rule 4: follow-up-due reminder)
++
++قانون ۴ (جدید) — یادآوری در لحظه‌ی سررسید پیگیری:
++    تا پیش از این، هیچ نوتیفیکیشنی وقتی next_follow_up یک لید فرامی‌رسید
++    ساخته نمی‌شد؛ کارشناس فقط در صورت باز کردن دستی صفحه‌ی «کارهای روزانه»
++    متوجه آن می‌شد. این مهاجرت یک پرچمِ یک‌بارمصرف (مشابه sla_notified
++    برای قانون ۱) اضافه می‌کند تا:
++      1) job جدید بتواند لیدهایی را که سررسیدشان گذشته و هنوز پرچم
++         نخورده‌اند پیدا کند،
++      2) بعد از ارسال یادآوری، دوباره در اجرای بعدی job برای همان
++         سررسید نوتیفیکیشن تکراری نسازد.
++    وقتی next_follow_up دوباره (توسط کارشناس) تغییر کند، این پرچم باید
++    False شود؛ این کار در لایه‌ی CRUD انجام می‌شود، نه در این مهاجرت.
++
++Revision ID: b7c4d9e1a203
++Revises: b7c8d9e0f1a2
++Create Date: 2026-09-26 00:00:00.000000
++"""
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++# revision identifiers, used by Alembic.
++revision: str = 'b7c4d9e1a203'
++down_revision: Union[str, Sequence[str], None] = 'b7c8d9e0f1a2'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def _cols(table_name: str) -> set[str]:
++    bind = op.get_bind()
++    inspector = sa.inspect(bind)
++    return {c["name"] for c in inspector.get_columns(table_name)}
++
++
++def upgrade() -> None:
++    """Upgrade schema."""
++    if 'follow_up_notified' not in _cols('leads'):
++        op.add_column(
++            'leads',
++            sa.Column(
++                'follow_up_notified',
++                sa.Boolean(),
++                nullable=False,
++                server_default=sa.false(),
++            ),
++        )
++
++
++def downgrade() -> None:
++    """Downgrade schema."""
++    if 'follow_up_notified' in _cols('leads'):
++        op.drop_column('leads', 'follow_up_notified')
+diff --git a/backend/alembic/versions/c9f3a7d1e5b8_add_refresh_sessions.py b/backend/alembic/versions/c9f3a7d1e5b8_add_refresh_sessions.py
+new file mode 100644
+index 0000000..503c147
+--- /dev/null
++++ b/backend/alembic/versions/c9f3a7d1e5b8_add_refresh_sessions.py
+@@ -0,0 +1,84 @@
++"""add refresh_sessions (server-side refresh-token revocation/rotation)
++
++نشست‌های توکن تمدید سمت سرور:
++    پیش از این jti داخل refresh token هرگز ذخیره نمی‌شد؛ logout
++    کلاینت‌ساید بود و توکن سرقت‌شده تا ۷ روز قابل replay بود. این
++    جدول هر توکن تمدیدِ صادرشده را با خانواده‌ی چرخشِ آن ثبت می‌کند
++    تا rotate/reuse-detection/revoke ممکن شود (app/services/auth_service.py).
++
++Revision ID: c9f3a7d1e5b8
++Revises: b7c4d9e1a203
++Create Date: 2026-09-26 00:00:00.000000
++"""
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++# revision identifiers, used by Alembic.
++revision: str = 'c9f3a7d1e5b8'
++down_revision: Union[str, Sequence[str], None] = 'b7c4d9e1a203'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def _tables() -> set[str]:
++    inspector = sa.inspect(op.get_bind())
++    return set(inspector.get_table_names())
++
++
++def _indexes(table_name: str) -> set[str]:
++    inspector = sa.inspect(op.get_bind())
++    return {i["name"] for i in inspector.get_indexes(table_name)}
++
++
++def upgrade() -> None:
++    """Upgrade schema."""
++    if 'refresh_sessions' not in _tables():
++        op.create_table(
++            'refresh_sessions',
++            sa.Column('id', sa.Integer(), primary_key=True),
++            sa.Column('jti', sa.String(length=64), nullable=False),
++            sa.Column(
++                'user_id',
++                sa.Integer(),
++                sa.ForeignKey('users.id'),
++                nullable=False,
++            ),
++            sa.Column('family_id', sa.String(length=64), nullable=False),
++            sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
++            sa.Column('revoked_at', sa.DateTime(timezone=True), nullable=True),
++            sa.Column('revoked_reason', sa.String(length=50), nullable=True),
++            sa.Column('replaced_by_jti', sa.String(length=64), nullable=True),
++            sa.Column(
++                'created_at',
++                sa.DateTime(timezone=True),
++                nullable=False,
++                server_default=sa.func.now(),
++            ),
++            sa.Column('last_used_at', sa.DateTime(timezone=True), nullable=True),
++        )
++
++    existing = _indexes('refresh_sessions')
++    if 'ix_refresh_sessions_jti' not in existing:
++        op.create_index(
++            'ix_refresh_sessions_jti', 'refresh_sessions', ['jti'], unique=True
++        )
++    if 'ix_refresh_sessions_user_id' not in existing:
++        op.create_index(
++            'ix_refresh_sessions_user_id', 'refresh_sessions', ['user_id']
++        )
++    if 'ix_refresh_sessions_family_id' not in existing:
++        op.create_index(
++            'ix_refresh_sessions_family_id', 'refresh_sessions', ['family_id']
++        )
++    if 'ix_refresh_sessions_expires_at' not in existing:
++        op.create_index(
++            'ix_refresh_sessions_expires_at', 'refresh_sessions', ['expires_at']
++        )
++
++
++def downgrade() -> None:
++    """Downgrade schema."""
++    if 'refresh_sessions' in _tables():
++        op.drop_table('refresh_sessions')
+diff --git a/backend/alembic/versions/d2e6b4a8c1f5_add_user_mobile_normalized.py b/backend/alembic/versions/d2e6b4a8c1f5_add_user_mobile_normalized.py
+new file mode 100644
+index 0000000..4016c8d
+--- /dev/null
++++ b/backend/alembic/versions/d2e6b4a8c1f5_add_user_mobile_normalized.py
+@@ -0,0 +1,90 @@
++"""add users.mobile_normalized (canonical identity key)
++
++هویت موبایل کاربر پیش از این با «برابریِ دقیقِ رشته‌ی خام» سنجیده
++می‌شد: «09121111111» و «+989121111111» و «۰۹۱۲۱۱۱۱۱۱۱» سه هویت
++جدا بودند؛ کاربری که شماره‌اش را با پیش‌شماره‌ی متفاوت وارد می‌کرد
++دیگر نمی‌توانست لاگین کند. حالا یک ستون canonical اضافه می‌شود:
++
++  * backfill با همان normalize_mobile برنامه (ترتیب id، قطعی)؛
++  * شماره‌های معادلی که از قبل به دو حساب مختلف تعلق دارند شناسایی
++    می‌شوند — رکورد دوم NULL می‌ماند (لاگینِ fallback با رشته‌ی خام
++    کارش ادامه می‌دهد) تا مهاجرت روی داده‌ی کثیفِ موجود هرگز شکست
++    نخورد؛
++  * ایندکس یکتا روی مقدار canonical: از این پس ساختن دو حساب با
++    شماره‌های معادل ناممکن است (IntegrityError → 409).
++
++Revision ID: d2e6b4a8c1f5
++Revises: c9f3a7d1e5b8
++Create Date: 2026-09-26 00:00:00.000000
++"""
++from typing import Sequence, Union
++
++import sqlalchemy as sa
++from alembic import op
++
++# revision identifiers, used by Alembic.
++revision: str = 'd2e6b4a8c1f5'
++down_revision: Union[str, Sequence[str], None] = 'c9f3a7d1e5b8'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def _columns(table_name: str) -> set[str]:
++    inspector = sa.inspect(op.get_bind())
++    return {c["name"] for c in inspector.get_columns(table_name)}
++
++
++def _indexes(table_name: str) -> set[str]:
++    inspector = sa.inspect(op.get_bind())
++    return {i["name"] for i in inspector.get_indexes(table_name)}
++
++
++def upgrade() -> None:
++    """Upgrade schema."""
++    if 'mobile_normalized' not in _columns('users'):
++        op.add_column(
++            'users',
++            sa.Column('mobile_normalized', sa.String(length=20), nullable=True),
++        )
++
++    # backfill — از منطق خود برنامه استفاده می‌شود تا تعریف canonical
++    # دقیقاً یکی بماند (نه یک بازپیاده‌سازی SQL که drift کند).
++    from app.core.text_normalization import normalize_mobile
++
++    conn = op.get_bind()
++    rows = conn.execute(sa.text('SELECT id, mobile FROM users ORDER BY id')).fetchall()
++    taken: set[str] = set()
++    for user_id, mobile in rows:
++        canonical = normalize_mobile(mobile)
++        if canonical is None:
++            continue
++        if canonical in taken:
++            # دو حساب با شماره‌های معادل — داده‌ی از قبل متناقض. رکورد
++            # جدیدتر NULL می‌ماند و لاگین با fallback رشته‌ی خام کار
++            # می‌کند؛ رفع تعارض محتوا تصمیم عملیاتی است، نه مهاجرت.
++            print(
++                f"[d2e6b4a8c1f5] duplicate canonical mobile {canonical} "
++                f"for user {user_id}; left NULL on purpose."
++            )
++            continue
++        taken.add(canonical)
++        conn.execute(
++            sa.text('UPDATE users SET mobile_normalized = :canonical WHERE id = :uid'),
++            {"canonical": canonical, "uid": user_id},
++        )
++
++    if 'uq_users_mobile_normalized' not in _indexes('users'):
++        op.create_index(
++            'uq_users_mobile_normalized',
++            'users',
++            ['mobile_normalized'],
++            unique=True,
++        )
++
++
++def downgrade() -> None:
++    """Downgrade schema."""
++    if 'uq_users_mobile_normalized' in _indexes('users'):
++        op.drop_index('uq_users_mobile_normalized', table_name='users')
++    if 'mobile_normalized' in _columns('users'):
++        op.drop_column('users', 'mobile_normalized')
+diff --git a/backend/alembic/versions/e84148be659e_update_user_fields.py b/backend/alembic/versions/e84148be659e_update_user_fields.py
+index 850e763..7d9d327 100644
+--- a/backend/alembic/versions/e84148be659e_update_user_fields.py
++++ b/backend/alembic/versions/e84148be659e_update_user_fields.py
+@@ -51,9 +51,12 @@ def upgrade() -> None:
+ 
+ 
+ def downgrade() -> None:
+-
++    # Only drop columns THIS revision added (is_superuser, updated_at,
++    # last_login). The previous version also dropped created_at and
++    # is_active, but those belong to the parent revision 6ea849d71db2
++    # (create_users_table) — dropping them here destroyed columns the
++    # parent migration still owns, breaking any further downgrade chain
++    # and silently erasing user activity state.
+     op.drop_column("users", "last_login")
+     op.drop_column("users", "updated_at")
+-    op.drop_column("users", "created_at")
+     op.drop_column("users", "is_superuser")
+-    op.drop_column("users", "is_active")
+diff --git a/backend/app/api/routes/auth.py b/backend/app/api/routes/auth.py
+index c54e2bc..ca2b865 100644
+--- a/backend/app/api/routes/auth.py
++++ b/backend/app/api/routes/auth.py
+@@ -1,6 +1,6 @@
+ from datetime import datetime, timezone
+ 
+-from fastapi import APIRouter, Body, Depends, HTTPException, status
++from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
+ from fastapi.security import OAuth2PasswordRequestForm
+ from sqlalchemy.orm import Session
+ 
+@@ -12,10 +12,18 @@ from app.auth.jwt_handler import (
+     create_refresh_token,
+     verify_token,
+ )
++from app.core.rate_limit import login_rate_guard, report_login_failure, report_login_success
+ from app.crud.user import get_user_by_mobile
+ from app.database.database import get_db
+ from app.models.user import User
++from app.schemas.auth import LogoutRequest
+ from app.schemas.user import UserResponse
++from app.services.auth_service import (
++    RefreshTokenError,
++    create_session_for_login,
++    revoke_by_token_payload,
++    rotate_session,
++)
+ 
+ router = APIRouter(
+     prefix="/auth",
+@@ -29,9 +37,14 @@ _DUMMY_PASSWORD_HASH = hash_password("dummy-password-for-timing-equalization-onl
+ 
+ @router.post("/login")
+ def login(
++    request: Request,
+     form_data: OAuth2PasswordRequestForm = Depends(),
+     db: Session = Depends(get_db),
+ ):
++    # ۰. کنترل نرخ ورود (brute-force / credential stuffing).
++    #    پیش از این هیچ throttle‌ای وجود نداشت و حدس رمز نامحدود بود.
++    login_rate_guard(request, form_data.username)
++
+     # ۱. پیدا کردن کاربر بر اساس شماره موبایل (username در فرم لاگین)
+     user = get_user_by_mobile(db, mobile=form_data.username)
+ 
+@@ -45,26 +58,44 @@ def login(
+     if user is None:
+         verify_password(form_data.password, _DUMMY_PASSWORD_HASH)
+     if not user or not verify_password(form_data.password, user.password):
++        report_login_failure(request, form_data.username)
+         raise HTTPException(
+             status_code=status.HTTP_401_UNAUTHORIZED,
+             detail="شماره موبایل یا رمز عبور اشتباه است",
+             headers={"WWW-Authenticate": "Bearer"},
+         )
+ 
+-    # ۳. کاربر غیرفعال اجازه‌ی ورود ندارد
++    # ۳. کاربر غیرفعال اجازه‌ی ورود ندارد.
++    #    SECURITY: پاسخ عمداً همان ۴۰۱ عمومیِ «رمز اشتباه» است؛ پیش از این
++    #    یک ۴۰۳ با پیام اختصاصی برمی‌گشت و به مهاجم اجازه می‌داد شماره‌های
++    #    «موجود ولی غیرفعال» را از شماره‌های نامعتبر تفکیک کند
++    #    (account-state enumeration). کاربر واقعاً غیرفعال از طریق مدیر
++    #    خود مطلع می‌شود، نه از طریق تفاوت پیام لاگین.
+     if not user.is_active:
++        report_login_failure(request, form_data.username)
+         raise HTTPException(
+-            status_code=status.HTTP_403_FORBIDDEN,
+-            detail="این حساب کاربری غیرفعال شده است. با مدیر سیستم تماس بگیرید.",
++            status_code=status.HTTP_401_UNAUTHORIZED,
++            detail="شماره موبایل یا رمز عبور اشتباه است",
++            headers={"WWW-Authenticate": "Bearer"},
+         )
+ 
++    report_login_success(request, form_data.username)
++
+     # ۴. ثبت آخرین ورود (فیلدی که تعریف شده بود اما هرگز به‌روز نمی‌شد)
+     user.last_login = datetime.now(timezone.utc)
+     db.commit()
+ 
+-    # ۵. صدور توکن‌ها
++    # ۵. صدور توکن‌ها + ثبت نشستِ سمت سرور برای توکن تمدید.
++    #    از این پس هر refresh token با jti خود در جدول refresh_sessions
++    #    شناخته می‌شود؛ logout/غیرفعال‌سازی/تشخیص replay می‌توانند
++    #    واقعاً آن را باطل کنند (پیش از این jti هرگز ذخیره نمی‌شد و
++    #    توکن سرقت‌شده تا ۷ روز قابل replay بود).
++    from uuid import uuid4
++
++    refresh_jti = uuid4().hex
+     access_token = create_access_token(data={"sub": user.mobile})
+-    refresh_token = create_refresh_token(data={"sub": user.mobile})
++    refresh_token = create_refresh_token(data={"sub": user.mobile}, jti=refresh_jti)
++    create_session_for_login(db, user, refresh_jti)
+ 
+     return {
+         "access_token": access_token,
+@@ -105,7 +136,16 @@ def refresh_access_token(
+         raise credentials_exception
+ 
+     user_mobile = payload.get("sub")
+-    if not user_mobile:
++    if not payload.get("jti") or not user_mobile:
++        raise credentials_exception
++
++    # چرخش نشست سمت سرور: توکن presented مصرف و باطل می‌شود و توکن
++    # تازه‌ای در همان خانواده صادر می‌شود. استفاده‌ی مجدد از توکنِ
++    # مصرف‌شده (replay/سرقت) کل خانواده را باطل می‌کند. پاسخ خطا
++    # عمداً عمومی است تا وضعیت نشست‌ها به بیرون نشت نکند.
++    try:
++        _old_session, new_session = rotate_session(db, payload["jti"])
++    except RefreshTokenError:
+         raise credentials_exception
+ 
+     user = get_user_by_mobile(db, user_mobile)
+@@ -113,9 +153,33 @@ def refresh_access_token(
+         raise credentials_exception
+ 
+     new_access_token = create_access_token(data={"sub": user.mobile})
++    new_refresh_token = create_refresh_token(
++        data={"sub": user.mobile},
++        jti=new_session.jti,
++    )
+ 
+     return {
+         "access_token": new_access_token,
++        "refresh_token": new_refresh_token,
+         "token_type": "bearer",
+         "message": "توکن با موفقیت تمدید شد",
+     }
++
++
++@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
++def logout(
++    body: LogoutRequest,
++    db: Session = Depends(get_db),
++):
++    """
++    خروج واقعیِ سمت سرور: نشستِ توکن تمدید باطل می‌شود تا همان توکن
++    حتی اگر پیش‌تر سرقت/کپی شده باشد دیگر قابل استفاده نباشد.
++    پیش از این logout صرفاً کلاینت‌ساید بود (حذف از localStorage).
++
++    پاسخ همیشه ۲۰۴ است — حتی برای توکن نامعتبر/قبلاً باطل — تا
++    این اندپوینت به ابزاری برای کاوش وضعیت نشست‌ها تبدیل نشود.
++    """
++    payload = verify_token(body.refresh_token, expected_type=TOKEN_TYPE_REFRESH)
++    if payload:
++        revoke_by_token_payload(db, payload, reason="logout")
++    return None
+diff --git a/backend/app/api/routes/dashboard.py b/backend/app/api/routes/dashboard.py
+index eac51a9..3f88ebd 100644
+--- a/backend/app/api/routes/dashboard.py
++++ b/backend/app/api/routes/dashboard.py
+@@ -9,6 +9,7 @@
+   می‌گیرند؛ سایر نقش‌ها داشبورد کارشناسی (محدود به پرونده‌های خودشان).
+ """
+ from datetime import datetime
++from datetime import timedelta
+ from datetime import timezone
+ from typing import Literal
+ 
+@@ -17,6 +18,7 @@ from sqlalchemy.orm import Session
+ 
+ from app.auth.dependencies import get_current_user
+ from app.constants.roles import Roles
++from app.core import jalali
+ from app.core.jalali import parse_jalali_date
+ from app.crud.dashboard import (
+     get_conversion_stats,
+@@ -61,25 +63,43 @@ CHART_PERMISSIONS = [
+ CalendarChoice = Literal["jalali", "gregorian"]
+ 
+ 
+-def _parse_datetime_bound(value: str | None) -> datetime | None:
++def _parse_datetime_bound(
++    value: str | None,
++    inclusive_end: bool = False,
++) -> datetime | None:
+     """
+     پارس کران‌های زمانی با پشتیبانی دوگانه:
+       * میلادی: 2026-08-01 یا 2026-08-01T10:30:00
+       * جلالی:  1405/05/10 یا 1405-05-10 (اختیاری با ساعت 1405/05/10 15:30)
++
++    ورودی‌های «فقط-تاریخ» به‌عنوان روز تقویمیِ تهران تفسیر می‌شوند
++    (ستون تحلیلی status_updated_at naive و به وقت تهران ذخیره می‌شود).
++    با inclusive_end=True کرانِ پایان به نیمه‌شبِ «روز بعد» منتقل می‌شود
++    تا date_to فقط-تاریخ، کلِ روزِ پایان را فراگیر پوشش دهد؛ پیش از این
++    نیمه‌شبِ همان روز مرزِ «کوچک‌تر» بود و کل روزِ درخواستی کاربر از
++    نمودار حذف می‌شد. datetime با ساعتِ صریح دقیقاً همان‌جا برش می‌خورد.
+     """
+     if not value:
+         return None
+ 
++    text = value.strip()
++    date_only = "T" not in text and " " not in text
++
+     try:
+-        parsed = datetime.fromisoformat(value)
++        parsed = datetime.fromisoformat(text)
+         if parsed.tzinfo is None:
++            if date_only:
++                # روز تقویمی تهران: نیمه‌شبِ تهران، نه نیمه‌شبِ UTC
++                if inclusive_end:
++                    parsed = parsed + timedelta(days=1)
++                return jalali.TEHRAN_TZ.localize(parsed).astimezone(timezone.utc)
+             parsed = parsed.replace(tzinfo=timezone.utc)
+         return parsed
+     except ValueError:
+         pass
+ 
+     try:
+-        return parse_jalali_date(value)
++        parsed = parse_jalali_date(text)
+     except ValueError:
+         raise HTTPException(
+             status_code=400,
+@@ -88,6 +108,10 @@ def _parse_datetime_bound(value: str | None) -> datetime | None:
+                 "Use ISO format (2026-08-01) or Jalali format (1405/05/10)."
+             ),
+         )
++    # parse_jalali_date خروجی UTC-aware بر مبنای نیمه‌شب تهران می‌دهد
++    if inclusive_end and date_only:
++        parsed = parsed + timedelta(days=1)
++    return parsed
+ 
+ 
+ @router.get("/")
+@@ -128,7 +152,7 @@ def chart_daily_sales(
+         days=days,
+         calendar=calendar,
+         date_from=_parse_datetime_bound(date_from),
+-        date_to=_parse_datetime_bound(date_to),
++        date_to=_parse_datetime_bound(date_to, inclusive_end=True),
+     )
+ 
+ 
+diff --git a/backend/app/api/routes/leads.py b/backend/app/api/routes/leads.py
+index 4fc1f2a..1b94fbd 100644
+--- a/backend/app/api/routes/leads.py
++++ b/backend/app/api/routes/leads.py
+@@ -644,7 +644,16 @@ def upload_lead_attachment(
+             os.remove(file_path)
+         raise
+ 
+-    attachment = create_attachment(db, lead, current_user, display_name, file_path)
++    # فایل همین الان روی دیسک نوشته شد؛ اگر ثبت رکورد DB شکست بخورد،
++    # فایل باید پاک شود وگرنه سند مشتری به‌صورت «یتیم» و غیرقابل‌دسترس
++    # روی دیسک باقی می‌ماند (نه DB آن را می‌شناسد، نه هیچ مسیری به آن
++    # ختم می‌شود).
++    try:
++        attachment = create_attachment(db, lead, current_user, display_name, file_path)
++    except Exception:
++        if os.path.exists(file_path):
++            os.remove(file_path)
++        raise
+     create_audit_log(
+         db,
+         current_user.id,
+diff --git a/backend/app/auth/jwt_handler.py b/backend/app/auth/jwt_handler.py
+index d980977..a462dfc 100644
+--- a/backend/app/auth/jwt_handler.py
++++ b/backend/app/auth/jwt_handler.py
+@@ -48,8 +48,14 @@ def create_access_token(data: dict):
+     )
+ 
+ 
+-def create_refresh_token(data: dict):
+-    """تولید توکن تمدید نشست (Refresh Token)"""
++def create_refresh_token(data: dict, jti: str | None = None):
++    """
++    تولید توکن تمدید نشست (Refresh Token).
++
++    jti اختیاری است: وقتی نشستِ سمت سرور (refresh_sessions) از قبل با
++    یک jti مشخص ثبت شده، همان jti داخل توکن قرار می‌گیرد تا JWT و
++    رکورد DB به یکدیگر گره بخورند (چرخش/ابطال سمت سرور).
++    """
+     to_encode = data.copy()
+     expire = datetime.now(timezone.utc) + timedelta(
+         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+@@ -58,7 +64,7 @@ def create_refresh_token(data: dict):
+         {
+             "exp": expire,
+             "iat": datetime.now(timezone.utc),
+-            "jti": uuid4().hex,
++            "jti": jti or uuid4().hex,
+             "type": TOKEN_TYPE_REFRESH,
+         }
+     )
+diff --git a/backend/app/config/settings.py b/backend/app/config/settings.py
+index 3383734..079ca09 100644
+--- a/backend/app/config/settings.py
++++ b/backend/app/config/settings.py
+@@ -14,8 +14,6 @@ HadiFlow
+ ===========================================================
+ """
+ 
+-import warnings
+-
+ from pydantic import field_validator
+ from pydantic_settings import BaseSettings, SettingsConfigDict
+ 
+@@ -32,7 +30,10 @@ class Settings(BaseSettings):
+ 
+     VERSION: str = "0.1.0"
+ 
+-    DEBUG: bool = True
++    # SECURITY: پیش‌فرض امن (False). در توسعه به‌صراحت در .env
++    # DEBUG=true گذاشته شود؛ فراموش‌کردن آن در استقرار دیگر باعث
++    # روشن‌ماندن حالت debug نمی‌شود.
++    DEBUG: bool = False
+ 
+     SECRET_KEY: str
+ 
+@@ -65,17 +66,25 @@ class Settings(BaseSettings):
+     # -----------------------------------------
+     ENABLE_SCHEDULER: bool = True
+ 
++    # -----------------------------------------
++    # محدودسازی نرخ ورود (brute-force control)
++    # پنجره‌ی لغزنده؛ جزئیات در app/core/rate_limit.py
++    # -----------------------------------------
++    LOGIN_RATE_WINDOW_SECONDS: int = 900
++    LOGIN_MAX_FAILURES_PER_ACCOUNT: int = 5
++    LOGIN_MAX_FAILURES_PER_IP: int = 30
++
+     @field_validator("SECRET_KEY")
+     @classmethod
+-    def warn_weak_secret_key(cls, v: str) -> str:
+-        # Non-fatal on purpose: crashing existing deployments on upgrade
+-        # would be worse than warning. HS256 keys below 32 bytes violate
+-        # RFC 7518 guidance and are far easier to brute-force.
++    def require_strong_secret_key(cls, v: str) -> str:
++        # SECURITY: پیش از این فقط warning داده می‌شد؛ یعنی استقرار می‌توانست
++        # با کلید ضعیف بالا بیاید و کسی متوجه نشود. کلید HS256 کوتاه‌تر از
++        # ۳۲ بایت طبق RFC 7518 نامعتبر است و brute-force آن آسان است.
++        # حالا برنامه با کلید ضعیف اصلاً استارت نمی‌شود (fail fast).
+         if len(v.encode("utf-8")) < 32:
+-            warnings.warn(
+-                "SECRET_KEY is shorter than 32 bytes; generate one with: "
+-                "python -c \"import secrets; print(secrets.token_urlsafe(64))\"",
+-                stacklevel=2,
++            raise ValueError(
++                "SECRET_KEY must be at least 32 UTF-8 bytes; generate one with: "
++                'python -c "import secrets; print(secrets.token_urlsafe(64))"'
+             )
+         return v
+ 
+diff --git a/backend/app/core/rate_limit.py b/backend/app/core/rate_limit.py
+new file mode 100644
+index 0000000..5431cac
+--- /dev/null
++++ b/backend/app/core/rate_limit.py
+@@ -0,0 +1,149 @@
++"""
++===========================================================
++محدودسازی نرخ ورود (brute-force / credential-stuffing control)
++-----------------------------------------------------------
++پیش از این /auth/login هیچ throttle‌ای نداشت: حدس رمز نامحدود بود و
++Argon2 فقط هزینه‌ی هر تلاش را بالا می‌برد، نه تعدادشان را.
++
++مدل فعلی — sliding window در حافظه‌ی فرایند:
++  * به ازای هر (IP + شماره‌ی نرمال‌شده): حداکثر
++    LOGIN_MAX_FAILURES_PER_ACCOUNT ورودِ ناموفق در پنجره‌ی
++    LOGIN_RATE_WINDOW_SECONDS → بعد از آن 429 با Retry-After.
++  * به ازای هر IP (فارغ از شماره): حداکثر LOGIN_MAX_FAILURES_PER_IP
++    ورود ناموفق در همان پنجره — برای بستن مسیرِ «یک بار مصرف برای
++    هر شماره» در credential stuffing.
++  * ورود موفق، شمارنده‌ی همان (IP+شماره) را صفر می‌کند؛ بودجه‌ی IP
++    عمداً صفر نمی‌شود تا مهاجم نتواند با یک حساب معتبر، بودجه‌ی
++    حدس‌زدنِ بقیه‌ی شماره‌ها را بازیابی کند.
++
++محدودیت معماری (مستند و عمدی): این limiter در حافظه‌ی هر فرایند است.
++با uvicorn --workers N یا چند کانتینر، هر replica بودجه‌ی مستقل دارد
++(یعنی مؤثر N برابر). برای استقرار چندنسخه‌ای باید throttle مشترک
++(Redis/درگاه API) جلوی سرویس گذاشته شود؛ این لایه حداقلِ دفاعِ
++داخل برنامه است، نه جایگزینِ edge limiting.
++===========================================================
++"""
++import threading
++import time
++
++from fastapi import HTTPException, Request, status
++
++from app.config.settings import settings
++from app.core.text_normalization import normalize_mobile
++
++
++class SlidingWindowCounter:
++    """شمارنده‌ی پنجره‌ی لغزنده، thread-safe و بدون وابستگی خارجی."""
++
++    def __init__(self, max_events: int, window_seconds: int):
++        self.max_events = max_events
++        self.window_seconds = window_seconds
++        self._hits: dict[str, list[float]] = {}
++        self._lock = threading.Lock()
++
++    def _prune(self, key: str, now: float) -> list[float]:
++        cutoff = now - self.window_seconds
++        hits = [t for t in self._hits.get(key, ()) if t > cutoff]
++        if hits:
++            self._hits[key] = hits
++        else:
++            self._hits.pop(key, None)
++        return hits
++
++    def check(self, key: str) -> tuple[bool, int]:
++        """بدون ثبت رویداد: (allowed, retry_after_seconds)."""
++        now = time.monotonic()
++        with self._lock:
++            hits = self._prune(key, now)
++            if len(hits) >= self.max_events:
++                retry_after = int(self.window_seconds - (now - hits[0])) + 1
++                return False, max(retry_after, 1)
++            return True, 0
++
++    def record(self, key: str) -> tuple[bool, int]:
++        """ثبت یک رویداد و بررسی عبور از حد مجاز."""
++        now = time.monotonic()
++        with self._lock:
++            hits = self._prune(key, now)
++            hits.append(now)
++            self._hits[key] = hits
++            if len(hits) > self.max_events:
++                retry_after = int(self.window_seconds - (now - hits[0])) + 1
++                return False, max(retry_after, 1)
++            return True, 0
++
++    def reset(self, key: str) -> None:
++        with self._lock:
++            self._hits.pop(key, None)
++
++    def clear(self) -> None:
++        with self._lock:
++            self._hits.clear()
++
++
++# نمونه‌های سراسری (یک‌بار در فرایند ساخته می‌شوند)
++_FAILURE_PER_ACCOUNT = SlidingWindowCounter(
++    max_events=settings.LOGIN_MAX_FAILURES_PER_ACCOUNT,
++    window_seconds=settings.LOGIN_RATE_WINDOW_SECONDS,
++)
++_FAILURE_PER_IP = SlidingWindowCounter(
++    max_events=settings.LOGIN_MAX_FAILURES_PER_IP,
++    window_seconds=settings.LOGIN_RATE_WINDOW_SECONDS,
++)
++
++_TOO_MANY_REQUESTS_DETAIL = (
++    "تلاش‌های ناموفق بیش از حد مجاز؛ لطفاً کمی بعد دوباره تلاش کنید."
++)
++
++
++def _client_ip(request: Request) -> str:
++    """IP کلاینت؛ پشت reverse proxy به اولین مقدار X-Forwarded-For اعتماد می‌شود."""
++    forwarded = request.headers.get("x-forwarded-for")
++    if forwarded:
++        return forwarded.split(",")[0].strip()
++    return request.client.host if request.client else "unknown"
++
++
++def _identity_key(username: str | None) -> str:
++    """کلید هویت: شماره‌ی نرمال‌شده تا «۰۹۱۲…» و «+۹۸۹۱۲…» یک کلید باشند."""
++    normalized = normalize_mobile(username) if username else None
++    return normalized or (username or "").strip().lower()
++
++
++def clear_login_counters() -> None:
++    """فقط برای تست‌ها: پاک‌سازی کامل شمارنده‌ها."""
++    _FAILURE_PER_ACCOUNT.clear()
++    _FAILURE_PER_IP.clear()
++
++
++def login_rate_guard(request: Request, username: str | None) -> None:
++    """پیش از پردازش لاگین: اگر بودجه تمام شده، 429 برگردان."""
++    ip = _client_ip(request)
++
++    allowed, retry_after = _FAILURE_PER_IP.check(f"ip:{ip}")
++    if not allowed:
++        raise HTTPException(
++            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
++            detail=_TOO_MANY_REQUESTS_DETAIL,
++            headers={"Retry-After": str(retry_after)},
++        )
++
++    allowed, retry_after = _FAILURE_PER_ACCOUNT.check(f"acct:{ip}|{_identity_key(username)}")
++    if not allowed:
++        raise HTTPException(
++            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
++            detail=_TOO_MANY_REQUESTS_DETAIL,
++            headers={"Retry-After": str(retry_after)},
++        )
++
++
++def report_login_failure(request: Request, username: str | None) -> None:
++    """ثبت یک تلاش ناموفق در هر دو شمارنده."""
++    ip = _client_ip(request)
++    _FAILURE_PER_IP.record(f"ip:{ip}")
++    _FAILURE_PER_ACCOUNT.record(f"acct:{ip}|{_identity_key(username)}")
++
++
++def report_login_success(request: Request, username: str | None) -> None:
++    """ورود موفق: بودجه‌ی همان (IP+شماره) بازمی‌گردد؛ بودجه‌ی IP نه."""
++    _FAILURE_PER_ACCOUNT.reset(f"acct:{_client_ip(request)}|{_identity_key(username)}")
+diff --git a/backend/app/crud/activity.py b/backend/app/crud/activity.py
+index 432e3ec..aa73e56 100644
+--- a/backend/app/crud/activity.py
++++ b/backend/app/crud/activity.py
+@@ -49,8 +49,13 @@ def create_activity(
+     # no_followup_reason، و نباید پیگیریِ فعلیِ لید را دست بزنند.
+     if activity_data.next_follow_up is not None:
+         lead.next_follow_up = activity_data.next_follow_up
++        # سررسید تازه‌ای تنظیم شد؛ اگر سررسید قبلی قبلاً یادآوری کرده
++        # بود، این پرچم باید بازنشانی شود تا «قانون ۴» بتواند دوباره
++        # برای همین لید (با تاریخ جدید) یادآوری بسازد.
++        lead.follow_up_notified = False
+     elif activity_data.activity_type in ACTION_TYPES_REQUIRING_FOLLOWUP:
+         lead.next_follow_up = None
++        lead.follow_up_notified = False
+ 
+     # ثبت هر اقدام واقعی (نه رویداد سیستمی) یعنی پرونده دیگر «رهاشده» نیست
+     if activity_data.activity_type in ACTION_TYPES_REQUIRING_FOLLOWUP:
+diff --git a/backend/app/crud/audit_log.py b/backend/app/crud/audit_log.py
+index 1882f08..f169273 100644
+--- a/backend/app/crud/audit_log.py
++++ b/backend/app/crud/audit_log.py
+@@ -1,6 +1,20 @@
++"""
++ثبت لاگ ممیزی (audit log).
++
++سیاست فعلی: «non-fatal but monitored» — شکستِ ثبت audit log نباید
++خودِ عملیات تجاری را rollback کند (مثلاً یک ارجاع موفق به‌خاطر خطای
++نوشتن لاگ ۵۰۰ نشود)، اما شکست آن هرگز بی‌صدا نیست: با سطح EXCEPTION
++و stack trace کامل در لاگ ساختاریافته ثبت می‌شود تا در مانیتورینگ
++قابل شکار باشد. پیش از این خطا فقط با print خام بیرون می‌رفت (بدون
++سطح، بدون stack trace، و در لاگ‌های ساختاریافته گم می‌شد) — یعنی
++رکورد انطباق/امنیتی می‌توانست ناپدید شود و هیچ هشداری تولید نشود.
++"""
+ from sqlalchemy.orm import Session
++
++from app.core.logger import app_logger
+ from app.models.audit_log import AuditLog
+ 
++
+ def create_audit_log(db: Session, user_id: int, action: str, entity: str, entity_id: int, description: str):
+     try:
+         log = AuditLog(
+@@ -14,10 +28,17 @@ def create_audit_log(db: Session, user_id: int, action: str, entity: str, entity
+         db.commit()
+         db.refresh(log)
+         return log
+-    except Exception as e:
++    except Exception:
+         db.rollback()
+-        print(f"Error saving audit log: {e}")
++        # AUDIT-DURABILITY: شکستِ نوشتن لاگ ممیزی یک رویداد قابل‌هشدار
++        # است، نه یک خطای بی‌اهمیت — با stack trace کامل ثبت می‌شود.
++        app_logger.exception(
++            f"AUDIT LOG WRITE FAILED (action={action}, entity={entity}, "
++            f"entity_id={entity_id}, user_id={user_id}) — audit record lost."
++        )
+         return None
++
++
+ def get_audit_logs(db: Session, skip: int = 0, limit: int = 100):
+     # استخراج لاگ‌ها از جدیدترین به قدیمی‌ترین
+     return db.query(AuditLog).order_by(AuditLog.created_at.desc()).offset(skip).limit(limit).all()
+diff --git a/backend/app/crud/dashboard.py b/backend/app/crud/dashboard.py
+index a5057ff..4ea7d7d 100644
+--- a/backend/app/crud/dashboard.py
++++ b/backend/app/crud/dashboard.py
+@@ -305,10 +305,13 @@ def _daily_sales_jalali(db, days, date_from, date_to):
+                 Lead.status_updated_at >= jalali.naive_tehran_from_utc(date_from)
+             )
+         if date_to is not None:
+-            # date_to به‌صورت فراگیر (تا پایان همان روز) تفسیر می‌شود
++            # کران پایان «دقیق» است: فراگیریِ ورودی‌های فقط-تاریخ
++            # (یک روز کامل) در مرز API انجام می‌شود
++            # (_parse_datetime_bound با inclusive_end=True)، نه اینجا —
++            # چون افزودن یک روز کامل به یک datetime صریحِ با ساعتِ مشخص،
++            # ۲۴ ساعت اضافه بر بازه‌ی درخواستی کاربر شامل می‌شد.
+             query = query.filter(
+-                Lead.status_updated_at
+-                < jalali.naive_tehran_from_utc(date_to) + timedelta(days=1)
++                Lead.status_updated_at < jalali.naive_tehran_from_utc(date_to)
+             )
+     else:
+         today_naive = jalali.naive_tehran_now()
+@@ -351,7 +354,11 @@ def _daily_sales_jalali(db, days, date_from, date_to):
+ def _daily_sales_gregorian(db, days, date_from, date_to):
+     """رفتار میلادی (پیش‌فرض) — با پشتیبانی بازه‌ی اختیاری."""
+     if date_from is None and date_to is None:
+-        now = datetime.now(timezone.utc)
++        # ستون status_updated_at به‌صورت naive و به وقت تهران ذخیره می‌شود؛
++        # کران «امروز» هم باید روز تقویمی تهران باشد، نه UTC. پیش از این
++        # نیمه‌شبِ UTC مبنا بود و ~۳٫۵ ساعت از هر شبانه‌روزِ تهران در
++        # برچسب روز اشتباه می‌افتاد.
++        now = jalali.naive_tehran_now()
+         start = (now - timedelta(days=days - 1)).replace(
+             hour=0, minute=0, second=0, microsecond=0
+         )
+@@ -384,12 +391,20 @@ def _daily_sales_gregorian(db, days, date_from, date_to):
+             result.append({"label": day_label, "amount": amount, "count": count})
+         return result
+ 
+-    # حالت بازه‌ی صریح: بدون صفرگذاری، فقط سطل‌های موجود
++    # حالت بازه‌ی صریح: بدون صفرگذاری، فقط سطل‌های موجود.
++    # کران‌های ورودی UTC-aware هستند (تبدیل در مرز API)؛ چون ستون
++    # naive و به وقت تهران است، مقایسه‌ی مستقیم با aware مرزها را به
++    # اندازه‌ی اختلاف منطقه‌زمانی جابه‌جا می‌کرد — پس ابتدا به naiveِ
++    # تهران تبدیل می‌شوند. فراگیریِ ورودی فقط-تاریخ در مرز API انجام شده.
+     query = _won_sale_rows(db)
+     if date_from is not None:
+-        query = query.filter(Lead.status_updated_at >= date_from)
++        query = query.filter(
++            Lead.status_updated_at >= jalali.naive_tehran_from_utc(date_from)
++        )
+     if date_to is not None:
+-        query = query.filter(Lead.status_updated_at < date_to)
++        query = query.filter(
++            Lead.status_updated_at < jalali.naive_tehran_from_utc(date_to)
++        )
+ 
+     rows = (
+         query.with_entities(
+@@ -414,7 +429,9 @@ def _daily_sales_gregorian(db, days, date_from, date_to):
+ def get_sales_by_user(db: Session, days: int | None = None):
+     cutoff = None
+     if days is not None:
+-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
++        # status_updated_at naive و به وقت تهران است؛ cutoff هم باید
++        # همان مبنا باشد (نه UTC-aware).
++        cutoff = jalali.naive_tehran_now() - timedelta(days=days)
+ 
+     filters = [
+         Lead.is_deleted == False,
+@@ -650,7 +667,10 @@ def get_sales_trend(
+         return _sales_trend_jalali(db, days, granularity)
+ 
+     unit = granularity if granularity in ("day", "week", "month") else "day"
+-    start = datetime.now(timezone.utc) - timedelta(days=days)
++    # date_trunc روی ستون naive تهران، سطل‌های روز/هفته/ماه تهران می‌سازد؛
++    # کران پنجره هم باید با همان مبنا باشد (پیش از این cutoff آگاهِ UTC با
++    # ستون naive مقایسه می‌شد).
++    start = jalali.naive_tehran_now() - timedelta(days=days)
+ 
+     period = func.date_trunc(unit, Lead.status_updated_at).label("period")
+ 
+diff --git a/backend/app/crud/lead.py b/backend/app/crud/lead.py
+index f6cc59d..a5e6237 100644
+--- a/backend/app/crud/lead.py
++++ b/backend/app/crud/lead.py
+@@ -670,6 +670,13 @@ def update_lead_followup(
+     current_user: User,
+ ):
+     lead.next_follow_up = followup_data.next_follow_up
++    # سررسید (جدید یا پاک‌شده) دستی تغییر کرد؛ پرچمِ «قانون ۴» باید
++    # بازنشانی شود تا این سررسید بتواند دوباره یادآوری بسازد. این
++    # مسیر جدا از create_activity است چون ActivityCreate اینجا
++    # next_follow_up را پاس نمی‌دهد (پیام آن را در description تعبیه
++    # می‌کند)، پس منطق بازنشانیِ داخل create_activity این حالت را پوشش
++    # نمی‌دهد.
++    lead.follow_up_notified = False
+     create_activity(
+         db,
+         lead,
+diff --git a/backend/app/crud/notification.py b/backend/app/crud/notification.py
+index cb630b0..fee9d2e 100644
+--- a/backend/app/crud/notification.py
++++ b/backend/app/crud/notification.py
+@@ -15,17 +15,27 @@ def get_notifications(
+ ):
+     now = datetime.now(timezone.utc)
+ 
++    # وظایف بازِ سررسیدگذشته — فقط روی پرونده‌های حذف‌نشده. وظیفه‌ی
++    # «canceled» هم دیگر «باز» نیست (پیش از این فقط done مستثنی بود و
++    # شمارشِ خلاصه را باد می‌کرد).
+     overdue_tasks = (
+-    db.query(Task)
+-    .filter(Task.assigned_to_id == current_user.id)
+-    .filter(Task.status != "done")
+-    .filter(Task.due_at < now)
+-    .count()
+-)
++        db.query(Task)
++        .join(Lead, Task.lead_id == Lead.id)
++        .filter(Task.assigned_to_id == current_user.id)
++        .filter(Task.status.notin_(["done", "canceled"]))
++        .filter(Task.is_deleted == False)
++        .filter(Lead.is_deleted == False)
++        .filter(Task.due_at < now)
++        .count()
++    )
+ 
++    # پرونده‌های من — حذف نرم‌شده‌ها نباید در شمارش خلاصه بمانند؛
++    # پیش از این شامل آن‌ها می‌شد و عددِ کارتِ داشبورد با فهرست واقعی
++    # پرونده‌ها نمی‌خواند.
+     my_leads = (
+         db.query(Lead)
+         .filter(Lead.owner_id == current_user.id)
++        .filter(Lead.is_deleted == False)
+         .count()
+     )
+ 
+diff --git a/backend/app/crud/user.py b/backend/app/crud/user.py
+index 390dfe8..7dd7643 100644
+--- a/backend/app/crud/user.py
++++ b/backend/app/crud/user.py
+@@ -1,5 +1,6 @@
+ from sqlalchemy.orm import Session
+ 
++from app.core.text_normalization import normalize_mobile
+ from app.models.user import User
+ from app.schemas.user import UserCreate, UserUpdate
+ from app.auth.hashing import hash_password
+@@ -9,6 +10,25 @@ from app.auth.hashing import hash_password
+ # دریافت کاربر با شماره موبایل
+ # ----------------------------------
+ def get_user_by_mobile(db: Session, mobile: str):
++    """
++    جست‌وجوی هویت با کلید canonical.
++
++    پیش از این فقط برابریِ دقیقِ رشته‌ی خام مقایسه می‌شد؛ یعنی کاربری
++    که شماره‌اش «09121111111» ثبت شده بود با وارد کردن «+989121111111»
++    یا «۰۹۱۲۱۱۱۱۱۱۱» (ارقام فارسی) نمی‌توانست لاگین کند و ساختن
++    حساب دوم با همان شماره‌ی معادل ممکن بود. حالا اول mobile_normalized
++    مقایسه می‌شود؛ fallback رشته‌ی خام فقط برای رکوردهای قدیمیِ
++    متناقض است (mobile_normalized=NULL پس از مهاجرت d2e6b4a8c1f5).
++    """
++    canonical = normalize_mobile(mobile)
++    if canonical is not None:
++        user = (
++            db.query(User)
++            .filter(User.mobile_normalized == canonical)
++            .first()
++        )
++        if user is not None:
++            return user
+     return (
+         db.query(User)
+         .filter(User.mobile == mobile)
+@@ -78,12 +98,23 @@ def update_user(
+ 
+     data = user.model_dump(exclude_unset=True)
+ 
++    was_active = db_user.is_active
++
+     for key, value in data.items():
+         setattr(db_user, key, value)
+ 
+     db.commit()
+     db.refresh(db_user)
+ 
++    # غیرفعال‌سازی باید نشست‌های فعالِ توکن تمدید را هم باطل کند؛
++    # وگرنه کاربرِ تعلیق‌شده تا ۷ روز می‌توانست با refresh tokenِ
++    # در دستش دسترسی جدید بسازد (بررسی is_active فقط در refresh مسیر
++    # را می‌بندد، ولی ابطال صریح، توکن سرقت‌شده را هم از کار می‌اندازد).
++    if was_active and not db_user.is_active:
++        from app.services.auth_service import revoke_all_for_user
++
++        revoke_all_for_user(db, db_user.id, reason="user_disabled")
++
+     return db_user
+ 
+ 
+@@ -105,4 +136,9 @@ def delete_user(
+     db_user.is_active = False
+     db.commit()
+     db.refresh(db_user)
++
++    # همه‌ی نشست‌های تمدیدِ فعال هم باطل می‌شوند (دلیل: user_disabled)
++    from app.services.auth_service import revoke_all_for_user
++
++    revoke_all_for_user(db, db_user.id, reason="user_disabled")
+     return db_user
+diff --git a/backend/app/main.py b/backend/app/main.py
+index 4e0ff66..7b09239 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -31,6 +31,7 @@ from app.api.routes.users import router as users_router
+ from app.config.settings import settings
+ from app.core.logger import app_logger
+ from app.middleware.etag import ETagMiddleware
++from app.middleware.security_headers import SecurityHeadersMiddleware
+ from app.scheduler.jobs import start_scheduler
+ 
+ # ===========================================================
+@@ -75,20 +76,11 @@ app.add_middleware(
+ # پاسخ ۳۰۴ برای درخواست‌های GET بدون تغییر (به‌ویژه روی موبایل)
+ app.add_middleware(ETagMiddleware)
+ 
+-
+ # ===========================================================
+ # هدرهای امنیتی پایه برای همه‌ی پاسخ‌ها
+-# پیش از این هیچ‌کدام تنظیم نمی‌شد؛ به‌ویژه دانلود پیوست‌ها بدون
+-# nosniff بود و مرورگر می‌توانست محتوای یک فایل «.txt» را HTML تفسیر کند.
++# (پیاده‌سازی در app/middleware/security_headers.py)
+ # ===========================================================
+-@app.middleware("http")
+-async def _security_headers(request: Request, call_next):
+-    response = await call_next(request)
+-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+-    response.headers.setdefault("X-Frame-Options", "DENY")
+-    response.headers.setdefault("Referrer-Policy", "no-referrer")
+-    response.headers.setdefault("Cache-Control", "no-store")
+-    return response
++app.add_middleware(SecurityHeadersMiddleware)
+ 
+ 
+ # ===========================================================
+@@ -151,6 +143,33 @@ def home():
+     }
+ 
+ 
++# ===========================================================
++# Healthcheck آگاه از دیتابیس (برای Docker/Compose/orchestrator)
++#
++# پیش از این healthcheck کانتینر به «/» می‌خورد؛ یعنی حتی وقتی
++# PostgreSQL کاملاً down بود، فرایند HTTP پاسخ ۲۰۰ می‌داد و
++# ارکستратор سرویس را «سالم» گزارش می‌کرد در حالی که هیچ درخواست
++# واقعی قابل سرو نبود. حالا یک SELECT 1 واقعی روی دیتابیس اجرا
++# می‌شود و در صورت خرابی، ۵۰۳ برمی‌گردد.
++# ===========================================================
++@app.get("/health")
++def health():
++    from sqlalchemy import text as sa_text
++
++    from app.database.database import engine
++
++    try:
++        with engine.connect() as conn:
++            conn.execute(sa_text("SELECT 1"))
++    except Exception as exc:  # noqa: BLE001
++        app_logger.error(f"Healthcheck failed: {exc}")
++        return JSONResponse(
++            status_code=503,
++            content={"status": "unhealthy", "database": "down"},
++        )
++    return {"status": "ok", "database": "up", "version": settings.VERSION}
++
++
+ # ===========================================================
+ # زمان‌بند در lifespan (بالای همین فایل) روشن می‌شود.
+ #
+diff --git a/backend/app/middleware/etag.py b/backend/app/middleware/etag.py
+index d8c972c..006d955 100644
+--- a/backend/app/middleware/etag.py
++++ b/backend/app/middleware/etag.py
+@@ -10,6 +10,21 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
+ from starlette.types import ASGIApp
+ 
+ 
++def _apply_auth_vary(request: Request, headers: dict) -> None:
++    """
++    SECURITY: responses of authenticated GETs are user-specific. Without
++    an explicit `Vary: Authorization`, an intermediate cache/proxy could
++    reuse one user's ETagged CRM payload for a different bearer identity.
++    Existing Vary values (e.g. `Origin` added by CORSMiddleware) are kept.
++    """
++    if not request.headers.get("authorization"):
++        return
++    values = [v.strip() for v in headers.get("vary", "").split(",") if v.strip()]
++    if "authorization" not in [v.lower() for v in values]:
++        values.append("authorization")
++    headers["vary"] = ", ".join(values)
++
++
+ class ETagMiddleware(BaseHTTPMiddleware):
+     MAX_BODY = 64 * 1024  # only hash reasonably small JSON payloads
+ 
+@@ -57,10 +72,12 @@ class ETagMiddleware(BaseHTTPMiddleware):
+                 if k.lower() not in {"content-type", "content-length"}
+             }
+             preserved["ETag"] = etag
++            _apply_auth_vary(request, preserved)
+             return Response(status_code=304, headers=preserved)
+ 
+         headers = dict(response.headers)
+         headers["ETag"] = etag
++        _apply_auth_vary(request, headers)
+         return Response(
+             content=body,
+             status_code=response.status_code,
+diff --git a/backend/app/middleware/security_headers.py b/backend/app/middleware/security_headers.py
+new file mode 100644
+index 0000000..8de6dfd
+--- /dev/null
++++ b/backend/app/middleware/security_headers.py
+@@ -0,0 +1,36 @@
++"""
++Basic browser security headers for every API response.
++
++پیش از این هیچ‌کدام از این هدرها تنظیم نمی‌شد:
++  * X-Content-Type-Options: nosniff — به‌ویژه برای دانلود پیوست‌ها؛
++    بدون آن مرورگر می‌توانست محتوای یک فایل «.txt» را HTML تفسیر کند.
++  * X-Frame-Options: DENY — جلوگیری از clickjacking (قرار گرفتن API/پنل
++    داخل iframe یک سایت متخاصم).
++  * Referrer-Policy: no-referrer — مسیرهای API (که می‌توانند شناسه‌ی
++    رکوردها را در URL داشته باشند) به‌عنوان Referrer به دامنه‌های
++    دیگر نشت نکنند.
++  * Cache-Control: no-store — پاسخ‌های دارای توکن/داده‌ی CRM در حافظه‌ی
++    نهانِ مرورگر یا پروکسی‌های اشتراکی باقی نمانند.
++
++این هدرها «hardening کم‌ریسک» هستند: هیچ‌کدام جریان عادی برنامه را
++تغییر نمی‌دهند و با setDefault افزوده می‌شوند تا هدرهای صریحِ لایه‌های
++دیگر (در صورت وجود) بازنویسی نشوند.
++"""
++from fastapi import Request, Response
++from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
++from starlette.types import ASGIApp
++
++_SECURITY_HEADERS = {
++    "X-Content-Type-Options": "nosniff",
++    "X-Frame-Options": "DENY",
++    "Referrer-Policy": "no-referrer",
++    "Cache-Control": "no-store",
++}
++
++
++class SecurityHeadersMiddleware(BaseHTTPMiddleware):
++    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
++        response = await call_next(request)
++        for name, value in _SECURITY_HEADERS.items():
++            response.headers.setdefault(name, value)
++        return response
+diff --git a/backend/app/models/__init__.py b/backend/app/models/__init__.py
+index 9344ef7..47f5fde 100644
+--- a/backend/app/models/__init__.py
++++ b/backend/app/models/__init__.py
+@@ -18,3 +18,4 @@ from app.models.lead_submission import LeadSubmission
+ from app.models.lead_deletion_audit import LeadDeletionAudit
+ from app.models.product import Product
+ from app.models.sale_item import SaleItem
++from app.models.refresh_session import RefreshSession
+diff --git a/backend/app/models/lead.py b/backend/app/models/lead.py
+index ed2fdd8..d30bea8 100644
+--- a/backend/app/models/lead.py
++++ b/backend/app/models/lead.py
+@@ -106,6 +106,19 @@ class Lead(Base):
+         nullable=True,
+     )
+ 
++    # قانون ۴ (یادآوری سررسید پیگیری): پرچم یک‌بارمصرف، مشابه sla_notified
++    # در قانون ۱. وقتی next_follow_up فرامی‌رسد، job یادآوری فقط یک‌بار
++    # نوتیفیکیشن می‌سازد و این پرچم را True می‌کند تا در اجرای بعدی همان
++    # سررسید دوباره نوتیفیکیشن نسازد. با هر تغییرِ next_follow_up توسط
++    # کارشناس (ثبت فعالیت/تنظیم پیگیری جدید)، این پرچم باید در لایه‌ی
++    # CRUD به False بازنشانی شود تا سررسید جدید بتواند دوباره یادآوری کند.
++    follow_up_notified: Mapped[bool] = mapped_column(
++        Boolean,
++        default=False,
++        server_default="false",
++        nullable=False,
++    )
++
+     created_at: Mapped[datetime] = mapped_column(
+         DateTime(timezone=True),
+         default=lambda: datetime.now(timezone.utc),
+diff --git a/backend/app/models/notification.py b/backend/app/models/notification.py
+index 6cae679..3c02ce4 100644
+--- a/backend/app/models/notification.py
++++ b/backend/app/models/notification.py
+@@ -27,6 +27,7 @@ NOTIFICATION_TYPES = {
+     "lead_escalated_manager", # قانون ۳: پرونده‌ای به شما ارجاع داده شد (برای مدیر)
+     "lead_assigned",          # ارجاع/ارجاع مجدد پرونده
+     "duplicate_submission",   # ثبت تکراری برای پرونده‌ی این کاربر ثبت شد
++    "follow_up_due",          # قانون ۴: سررسید next_follow_up یک لید فرا رسید
+ }
+ 
+ 
+diff --git a/backend/app/models/refresh_session.py b/backend/app/models/refresh_session.py
+new file mode 100644
+index 0000000..a87581b
+--- /dev/null
++++ b/backend/app/models/refresh_session.py
+@@ -0,0 +1,98 @@
++"""
++===========================================================
++مدل نشستِ توکن تمدید (Refresh Session)
++-----------------------------------------------------------
++پیش از این refresh tokenها فقط یک jti امضاشده داخل JWT داشتند که
++هرگز سمت سرور ذخیره نمی‌شد؛ یعنی:
++  * توکن تمدیدِ سرقت‌شده تا ۷ روز قابل replay بود،
++  * logout صرفاً کلاینت‌ساید بود و هیچ چیزی را باطل نمی‌کرد،
++  * غیرفعال‌سازی کاربر، نشست‌های در جریان او را cut نمی‌کرد.
++
++حالا هر refresh token یک رکورد نشست دارد:
++  * jti: شناسه‌ی یکتای خود توکن (کلید lookup)
++  * family_id: زنجیره‌ی چرخش توکن‌ها — هر لاگین یک خانواده‌ی جدید
++    می‌سازد و هر چرخش، عضو جدیدی در همان خانواده است. استفاده‌ی
++    مجدد از یک توکنِ مصرف‌شده (نشانه‌ی سرقت) کل خانواده را باطل
++    می‌کند، چون یا دزد توکن جدید را دارد یا کاربر واقعی — در هر
++    حال هر دو از کار می‌افتند و کاربر با لاگین مجدد بازیابی می‌کند.
++  * revoked_at / revoked_reason / replaced_by_jti: وضعیت ابطال و
++    ردیابی چرخش.
++  * expires_at: انقضای سمت سرور، مستقل از ادعای exp داخل JWT —
++    حتی اگر توکنِ امضاشده هنوز معتبر به‌نظر برسد، نشستِ منقضی/
++    باطل‌شده قابل استفاده نیست.
++===========================================================
++"""
++from datetime import datetime, timezone
++
++from sqlalchemy import DateTime, ForeignKey, String
++from sqlalchemy.orm import Mapped, mapped_column
++
++from app.database.base import Base
++
++# دلایل ابطال (برای ممیزی/دیباگ)
++REVOKE_REASON_ROTATED = "rotated"          # چرخش عادی: توکن جدید جایگزین شد
++REVOKE_REASON_LOGOUT = "logout"            # کاربر خروج زد
++REVOKE_REASON_REUSE = "reuse_detected"     # replay یک توکن مصرف‌شده → کل خانواده باطل
++REVOKE_REASON_USER_DISABLED = "user_disabled"  # حساب غیرفعال/حذف شد
++REVOKE_REASON_PASSWORD_CHANGE = "password_change"
++
++
++class RefreshSession(Base):
++    __tablename__ = "refresh_sessions"
++
++    id: Mapped[int] = mapped_column(primary_key=True)
++
++    jti: Mapped[str] = mapped_column(
++        String(64),
++        unique=True,
++        nullable=False,
++        index=True,
++    )
++
++    user_id: Mapped[int] = mapped_column(
++        ForeignKey("users.id"),
++        nullable=False,
++        index=True,
++    )
++
++    family_id: Mapped[str] = mapped_column(
++        String(64),
++        nullable=False,
++        index=True,
++    )
++
++    expires_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True),
++        nullable=False,
++        index=True,
++    )
++
++    revoked_at: Mapped[datetime | None] = mapped_column(
++        DateTime(timezone=True),
++        nullable=True,
++    )
++
++    revoked_reason: Mapped[str | None] = mapped_column(
++        String(50),
++        nullable=True,
++    )
++
++    replaced_by_jti: Mapped[str | None] = mapped_column(
++        String(64),
++        nullable=True,
++    )
++
++    created_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True),
++        default=lambda: datetime.now(timezone.utc),
++        nullable=False,
++    )
++
++    last_used_at: Mapped[datetime | None] = mapped_column(
++        DateTime(timezone=True),
++        nullable=True,
++    )
++
++    @property
++    def is_revoked(self) -> bool:
++        return self.revoked_at is not None
+diff --git a/backend/app/models/user.py b/backend/app/models/user.py
+index 422f76d..2831dd7 100644
+--- a/backend/app/models/user.py
++++ b/backend/app/models/user.py
+@@ -50,6 +50,23 @@ class User(Base):
+         nullable=False,
+     )
+ 
++    # ----------------------------------------------------
++    # شماره موبایل canonical (هویت یکتای نرمال‌شده)
++    #
++    # «09121111111»، «+989121111111» و «۰۹۱۲۱۱۱۱۱۱۱» یک شماره‌اند؛
++    # پیش از این هر کدام هویت جدا بودند و لاگین با برابریِ دقیقِ
++    # رشته‌ی خام انجام می‌شد (کاربر با فرمتِ متفاوت قفل می‌شد).
++    # این ستون همیشه از روی mobile محاسبه می‌شود (event listener
++    # پایین) و جست‌وجوی هویت/لاگین اول از آن استفاده می‌کند.
++    # NULL فقط برای داده‌ی قدیمیِ متناقض (دو حساب با شماره‌ی معادل)
++    # مجاز است؛ ایندکس یکتا چند NULL را در PostgreSQL تحمل می‌کند.
++    # ----------------------------------------------------
++    mobile_normalized: Mapped[str | None] = mapped_column(
++        String(20),
++        unique=True,
++        nullable=True,
++    )
++
+     # ----------------------------------------------------
+     # رمز عبور (Hash)
+     # ----------------------------------------------------
+@@ -116,3 +133,20 @@ class User(Base):
+     # بود که تعریف تایپ‌دار بالا را بی‌صدا بازنویسی می‌کرد و nullable=False
+     # را از بین می‌برد. تعریف تکراری حذف شد؛ مرجع یگانه، همان ستون بالاست.
+     permissions = Column(JSON, default=list) # ذخیره دسترسی‌های نقطه‌ای به صورت آرایه
++
++
++# ==========================================================
++# همگام‌سازی خودکار mobile_normalized
++# هر مسیر ساخت/به‌روزرسانی User (CRUD، اسکریپت‌های seed، تست‌ها)
++# بدون نیاز به تغییر کد، ستون canonical را پر نگه می‌دارد.
++# ==========================================================
++from sqlalchemy import event  # noqa: E402
++
++from app.core.text_normalization import normalize_mobile  # noqa: E402
++
++
++@event.listens_for(User, "before_insert")
++@event.listens_for(User, "before_update")
++def _sync_user_mobile_normalized(_mapper, _connection, target: User) -> None:
++    if target.mobile:
++        target.mobile_normalized = normalize_mobile(target.mobile)
+diff --git a/backend/app/scheduler/jobs.py b/backend/app/scheduler/jobs.py
+index dd0c719..decce3e 100644
+--- a/backend/app/scheduler/jobs.py
++++ b/backend/app/scheduler/jobs.py
+@@ -17,14 +17,27 @@
+     به‌صورت خودکار از کارشناس گرفته و به مدیر (نقش CEO) ارجاع
+     داده می‌شود.
+ 
++قانون ۴ (جدید) — یادآوری سررسید پیگیری:
++    وقتی next_follow_up یک لید فرامی‌رسد، به کارشناسِ مسئول یک
++    نوتیفیکیشنِ داخل‌سایت («این پیگیری الان سررسید شده») ارسال می‌شود.
++    پیش از این هیچ رویدادی برای این لحظه وجود نداشت؛ next_follow_up
++    فقط منفعلانه در فیلترها/داشبورد نمایش داده می‌شد و کارشناس فقط در
++    صورتی متوجه سررسید می‌شد که خودش به سراغ صفحه‌ی «کارهای روزانه»
++    برود. مثل قانون ۱ (sla_notified)، این یادآوری هم یک‌بار در ازای هر
++    سررسید ارسال می‌شود (پرچم follow_up_notified) و با تنظیم دستیِ
++    سررسید جدید توسط کارشناس دوباره فعال می‌شود.
++
+ توابع و نام‌های قبلی (send_daily_morning_reminders، start_scheduler)
+ عمداً حفظ شده‌اند تا نقاطی از پروژه که به آن‌ها وابسته‌اند نشکنند.
+ """
++from contextlib import contextmanager
+ from datetime import datetime, timedelta, timezone
++import functools
+ 
+ from apscheduler.schedulers.background import BackgroundScheduler
++from sqlalchemy import text
+ 
+-from app.database.database import SessionLocal
++from app.database.database import SessionLocal, engine
+ from app.models.lead import Lead
+ from app.models.user import User
+ from app.constants.roles import Roles
+@@ -41,6 +54,74 @@ from app.core.logger import app_logger
+ NO_CONTACT_WINDOW_MINUTES = 60
+ ESCALATION_THRESHOLD_DAYS = 3
+ 
++# ==========================================================
++# قفل تک‌نسخه‌ای jobها (multi-worker safety)
++#
++# APScheduler داخل lifespan هر فرایند API استارت می‌شود؛ با
++# uvicorn --workers N یا چند کانتینر، هر job N بار اجرا و
++# نوتیفیکیشن/ارجاع تکراری ساخته می‌شد. هر job پیش از اجرا یک
++# advisory lock غیرمسدودکننده روی PostgreSQL می‌گیرد؛ اگر نمونه‌ی
++# دیگری همان لحظه مشغول همان job باشد، این اجرا بدون اثر جانبی
++# رد می‌شود. روی دیتابیس‌های غیر PostgreSQL (فقط تست‌های واحد)
++# قفل بی‌اثر است و job مستقیم اجرا می‌شود.
++# ==========================================================
++_JOB_LOCK_KEYS = {
++    "rule1_no_contact": 910001,
++    "rule2_morning_digest": 910002,
++    "rule3_escalation": 910003,
++    "rule4_followup_due": 910004,
++    "refresh_session_cleanup": 910005,
++}
++
++
++@contextmanager
++def _single_instance_lock(lock_name: str):
++    """
++    قفل advisory در سطح session روی یک اتصال اختصاصی.
++
++    اتصال تا پایان بلوک job باز می‌ماند تا lock و unlock حتماً روی
++    همان connection اجرا شوند (اتصالِ Session کاری بین commitها به
++    pool برمی‌گردد و برای این کار قابل اتکا نیست).
++    """
++    key = _JOB_LOCK_KEYS[lock_name]
++    if engine.dialect.name != "postgresql":
++        yield True
++        return
++    conn = engine.connect()
++    try:
++        acquired = conn.execute(
++            text("SELECT pg_try_advisory_lock(:key)"), {"key": key}
++        ).scalar()
++        if not acquired:
++            yield False
++            return
++        try:
++            yield True
++        finally:
++            conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
++    finally:
++        conn.close()
++
++
++def single_instance(lock_name: str):
++    """دکوریتور: job فقط در یک فرایند/نسخه در هر لحظه اجرا می‌شود."""
++
++    def decorator(func):
++        @functools.wraps(func)
++        def wrapper(*args, **kwargs):
++            with _single_instance_lock(lock_name) as acquired:
++                if not acquired:
++                    app_logger.info(
++                        f"[Scheduler] {lock_name}: another worker is already "
++                        "running this job; skipping this tick."
++                    )
++                    return None
++                return func(*args, **kwargs)
++
++        return wrapper
++
++    return decorator
++
+ 
+ def _aware(dt):
+     """
+@@ -81,6 +162,7 @@ def _get_designated_manager(db):
+     )
+ 
+ 
++@single_instance("rule2_morning_digest")
+ def send_daily_morning_reminders():
+     """
+     قانون ۲: هر روز ساعت ۸ صبح، خلاصه‌ی پرونده‌های باز هر کارشناس ارسال می‌شود.
+@@ -159,6 +241,7 @@ def _process_no_contact_candidate(db, lead) -> None:
+     app_logger.info(f"[Scheduler] Rule 1: reminder sent for lead {lead.id}.")
+ 
+ 
++@single_instance("rule1_no_contact")
+ def check_no_contact_reminders():
+     """
+     قانون ۱: اگر ۶۰ دقیقه از آخرین ارجاع یک پرونده گذشته و هیچ تماس/فعالیتی
+@@ -190,6 +273,77 @@ def check_no_contact_reminders():
+         db.close()
+ 
+ 
++def _process_due_followup(db, lead) -> None:
++    """پردازش یک پرونده در قانون ۴ (در تراکنش مستقل)."""
++    owner = db.query(User).filter(User.id == lead.owner_id).first()
++    # کاربر غیرفعال نباید یادآوری بگیرد؛ ولی پرچم را هم اینجا True
++    # می‌کنیم وگرنه این لید برای همیشه در هر اجرا candidate می‌ماند
++    # بدون اینکه هرگز نوتیفیکیشنی واقعاً ارسال شود.
++    if not owner or not owner.is_active:
++        lead.follow_up_notified = True
++        db.commit()
++        return
++
++    create_notification(
++        db,
++        user_id=owner.id,
++        notification_type="follow_up_due",
++        title="سررسید پیگیری",
++        message=f"زمان پیگیریِ پرونده‌ی «{lead.customer_name}» فرا رسیده است.",
++        lead_id=lead.id,
++        commit=False,
++    )
++    lead.follow_up_notified = True
++    db.commit()
++    app_logger.info(f"[Scheduler] Rule 4: follow-up reminder sent for lead {lead.id}.")
++
++
++@single_instance("rule4_followup_due")
++def check_due_followups():
++    """
++    قانون ۴: وقتی زمانِ next_follow_up یک لید فرا می‌رسد (یعنی همین الان
++    یا در گذشته است) و هنوز برای همین سررسید یادآوری نشده، به کارشناسِ
++    مسئولِ آن لید یک نوتیفیکیشنِ داخل‌سایت ارسال می‌شود.
++
++    این کار جدا از «قانون ۱» است: قانون ۱ فقط درباره‌ی عدم تماس در ۶۰
++    دقیقه‌ی اول *بعد از ارجاع* است، نه سررسید پیگیریِ برنامه‌ریزی‌شده‌ای
++    که خودِ کارشناس (هنگام ثبت یک تماس/یادداشت) تعیین کرده. پیش از این
++    next_follow_up فقط منفعلانه در فیلترهای «امروز/عقب‌افتاده» و
++    داشبورد نمایش داده می‌شد؛ اگر کارشناس در همان لحظه اپ را باز نکرده
++    بود، هیچ‌چیز به او یادآوری نمی‌کرد.
++
++    follow_up_notified یک پرچم یک‌بارمصرف است (مثل sla_notified در
++    قانون ۱): بعد از ارسال یادآوری True می‌شود تا در اجراهای بعدیِ این
++    job (هر ۵ دقیقه) دوباره برای همان سررسید نوتیفیکیشن تکراری نسازد.
++    وقتی کارشناس سررسید جدیدی تنظیم می‌کند (یا آن را پاک می‌کند)، این
++    پرچم در لایه‌ی CRUD (create_activity / update_lead_followup) به
++    False بازمی‌گردد تا سررسید جدید بتواند دوباره یادآوری کند.
++    """
++    app_logger.info("[Scheduler] Rule 4: follow-up due check triggered.")
++    db = SessionLocal()
++    try:
++        now = datetime.now(timezone.utc)
++
++        candidates = db.query(Lead).filter(
++            Lead.is_deleted == False,
++            Lead.status.notin_(CLOSED_STATUSES),
++            Lead.follow_up_notified == False,
++            Lead.next_follow_up.isnot(None),
++            Lead.next_follow_up <= now,
++        ).all()
++
++        for lead in candidates:
++            # خطای یک پرونده نباید پردازش بقیه را متوقف کند (همان
++            # الگوی قانون ۱ و ۳).
++            try:
++                _process_due_followup(db, lead)
++            except Exception as exc:  # noqa: BLE001
++                db.rollback()
++                app_logger.exception(f"[Scheduler] Rule 4 failed for lead {lead.id}: {exc}")
++    finally:
++        db.close()
++
++
+ def _escalate_one_lead(db, lead, manager, cutoff) -> None:
+     """ارجاع اضطراری یک پرونده به مدیر (در تراکنش مستقل)."""
+     # «آخرین فعالیت» باید جدیدترینِ سه سیگنال باشد: آخرین تماس،
+@@ -277,6 +431,7 @@ def _escalate_one_lead(db, lead, manager, cutoff) -> None:
+     db.commit()
+ 
+ 
++@single_instance("rule3_escalation")
+ def escalate_stale_leads():
+     """
+     قانون ۳: اگر ۳ روز از آخرین فعالیت روی یک پرونده‌ی باز بگذرد، پرونده
+@@ -312,6 +467,27 @@ def escalate_stale_leads():
+         db.close()
+ 
+ 
++@single_instance("refresh_session_cleanup")
++def cleanup_expired_refresh_sessions():
++    """
++    پاک‌سازی نشست‌های توکن تمدید که از انقضا+دوره‌ی نگهداری گذشته‌اند
++    تا جدول refresh_sessions رشد بی‌پایان نکند.
++    """
++    app_logger.info("[Scheduler] refresh-session cleanup triggered.")
++    from app.services.auth_service import cleanup_expired
++
++    db = SessionLocal()
++    try:
++        removed = cleanup_expired(db)
++        if removed:
++            app_logger.info(f"[Scheduler] removed {removed} expired refresh session(s).")
++    except Exception as exc:  # noqa: BLE001
++        db.rollback()
++        app_logger.exception(f"[Scheduler] refresh-session cleanup failed: {exc}")
++    finally:
++        db.close()
++
++
+ def start_scheduler():
+     scheduler = BackgroundScheduler()
+ 
+@@ -327,8 +503,16 @@ def start_scheduler():
+     # قانون ۱: هر ۵ دقیقه بررسی می‌شود که آیا پرونده‌ای بیش از ۶۰ دقیقه بدون اقدام مانده
+     scheduler.add_job(check_no_contact_reminders, 'interval', minutes=5)
+ 
++    # قانون ۴: هر ۵ دقیقه بررسی می‌شود که آیا سررسید پیگیریِ لیدی فرا رسیده
++    scheduler.add_job(check_due_followups, 'interval', minutes=5)
++
+     # قانون ۳: هر ساعت بررسی می‌شود که آیا پرونده‌ای ۳ روز بدون فعالیت مانده
+     scheduler.add_job(escalate_stale_leads, 'interval', hours=1)
+ 
++    # نگهداشت: پاک‌سازی روزانه‌ی نشست‌های تمدیدِ منقضی‌شده (ساعت ۴ صبح تهران)
++    scheduler.add_job(
++        cleanup_expired_refresh_sessions, 'cron', hour=4, minute=0, timezone=jalali.TEHRAN_TZ
++    )
++
+     scheduler.start()
+     return scheduler
+diff --git a/backend/app/schemas/auth.py b/backend/app/schemas/auth.py
+index cdfc10c..168b161 100644
+--- a/backend/app/schemas/auth.py
++++ b/backend/app/schemas/auth.py
+@@ -9,3 +9,9 @@ class LoginRequest(BaseModel):
+ class TokenResponse(BaseModel):
+     access_token: str
+     token_type: str = "bearer"
++
++
++class LogoutRequest(BaseModel):
++    """بدنه‌ی درخواست خروج — توکن تمدیدی که باید سمت سرور باطل شود."""
++
++    refresh_token: str
+diff --git a/backend/app/services/__init__.py b/backend/app/services/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/backend/app/services/auth_service.py b/backend/app/services/auth_service.py
+index 8b13789..331d8ed 100644
+--- a/backend/app/services/auth_service.py
++++ b/backend/app/services/auth_service.py
+@@ -1 +1,211 @@
++"""
++===========================================================
++سرویس چرخه‌ی عمر نشست‌های توکن تمدید (refresh sessions)
++-----------------------------------------------------------
++تمام منطق سمت‌سرورِ revocation/rotation اینجا متمرکز است تا
++routeها فقط جریان درخواست را ببینند:
+ 
++  * create_session_for_login: ثبت نشست تازه هنگام لاگین موفق
++  * rotate_session: اعتبارسنجی نشستِ jti presented و صدور نشست
++    جایگزین (چرخش در هر بار استفاده)
++  * تشخیص replay: استفاده از توکنِ مصرف‌شده/باطل → ابطال کل خانواده
++  * revoke_session / revoke_family / revoke_all_for_user: ابطال
++    صریح (logout، غیرفعال‌سازی کاربر)
++  * cleanup_expired: پاک‌سازی نشست‌های منقضی قدیمی (job زمان‌بند)
++===========================================================
++"""
++from datetime import datetime, timedelta, timezone
++from uuid import uuid4
++
++from sqlalchemy.orm import Session
++
++from app.config.settings import settings
++from app.core.logger import app_logger
++from app.models.refresh_session import (
++    REVOKE_REASON_LOGOUT,
++    REVOKE_REASON_REUSE,
++    REVOKE_REASON_ROTATED,
++    REVOKE_REASON_USER_DISABLED,
++    RefreshSession,
++)
++from app.models.user import User
++
++
++class RefreshTokenError(Exception):
++    """نشستِ توکن تمدید معتبر نیست (نامعتبر/منقضی/باطل/ناموجود)."""
++
++    def __init__(self, reason: str):
++        self.reason = reason
++        super().__init__(reason)
++
++
++def _utcnow() -> datetime:
++    return datetime.now(timezone.utc)
++
++
++def create_session_for_login(
++    db: Session,
++    user: User,
++    jti: str,
++) -> RefreshSession:
++    """ثبت نشست تازه برای یک لاگین موفق (خانواده‌ی جدید)."""
++    session = RefreshSession(
++        jti=jti,
++        user_id=user.id,
++        family_id=uuid4().hex,
++        expires_at=_utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
++    )
++    db.add(session)
++    db.commit()
++    return session
++
++
++def revoke_family(db: Session, family_id: str, reason: str) -> int:
++    """ابطال همه‌ی نشست‌های فعال یک خانواده؛ تعداد نشست‌های باطل‌شده."""
++    now = _utcnow()
++    count = (
++        db.query(RefreshSession)
++        .filter(
++            RefreshSession.family_id == family_id,
++            RefreshSession.revoked_at.is_(None),
++        )
++        .update(
++            {"revoked_at": now, "revoked_reason": reason},
++            synchronize_session=False,
++        )
++    )
++    db.commit()
++    if count:
++        app_logger.warning(
++            f"[Auth] refresh family {family_id[:8]}… revoked ({reason}); "
++            f"{count} session(s) invalidated."
++        )
++    return int(count)
++
++
++def rotate_session(db: Session, jti: str) -> tuple[RefreshSession, RefreshSession]:
++    """
++    اعتبارسنجی نشستِ jti و چرخش آن.
++
++    خروجی: (old_session, new_session) — old_session همین‌جا باطل و
++    new_session جایگزین آن ثبت می‌شود. خطاها با RefreshTokenError:
++
++      * not_found: jti در DB نیست (توکن قبل از استقرارِ این مکانیزم
++        صادر شده یا ساختگی است)
++      * reused: توکنِ قبلاً مصرف‌شده دوباره ارائه شده → replay قطعی؛
++        کل خانواده باطل می‌شود (هم توکن دزد از کار می‌افتد هم توکنی
++        که جایگزینش شده بود؛ کاربر واقعی با لاگین مجدد بازیابی می‌کند)
++      * revoked: نشست صریحاً باطل شده (logout/غیرفعال‌سازی)
++      * expired: انقضای سمت سرور (مستقل از exp داخل JWT)
++    """
++    session = (
++        db.query(RefreshSession)
++        .filter(RefreshSession.jti == jti)
++        .first()
++    )
++    if session is None:
++        raise RefreshTokenError("not_found")
++
++    now = _utcnow()
++
++    if session.is_revoked:
++        if session.revoked_reason == REVOKE_REASON_ROTATED:
++            # این توکن یک‌بار مصرف و جایگزین شده؛ ارائه‌ی دوباره‌ی آن
++            # یعنی replay (یا کلاینتِ قدیمی که توکن چرخش‌یافته را
++            # ذخیره نکرده). در هر دو حالت امن‌ترین واکنش، ابطال کل
++            # خانواده است.
++            revoke_family(db, session.family_id, REVOKE_REASON_REUSE)
++            raise RefreshTokenError("reused")
++        raise RefreshTokenError("revoked")
++
++    if session.expires_at <= now:
++        session.revoked_at = now
++        session.revoked_reason = "expired"
++        db.commit()
++        raise RefreshTokenError("expired")
++
++    user = db.query(User).filter(User.id == session.user_id).first()
++    if user is None or not user.is_active:
++        revoke_family(db, session.family_id, REVOKE_REASON_USER_DISABLED)
++        raise RefreshTokenError("user_inactive")
++
++    new_jti = uuid4().hex
++    new_session = RefreshSession(
++        jti=new_jti,
++        user_id=session.user_id,
++        family_id=session.family_id,
++        expires_at=now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
++    )
++    db.add(new_session)
++
++    session.revoked_at = now
++    session.revoked_reason = REVOKE_REASON_ROTATED
++    session.replaced_by_jti = new_jti
++    session.last_used_at = now
++
++    db.commit()
++    db.refresh(new_session)
++    return session, new_session
++
++
++def revoke_session(db: Session, jti: str, reason: str = REVOKE_REASON_LOGOUT) -> bool:
++    """ابطال یک نشست مشخص (logout). توکن نامعتبر/قبلاً باطل → False بی‌صدا."""
++    session = (
++        db.query(RefreshSession)
++        .filter(RefreshSession.jti == jti, RefreshSession.revoked_at.is_(None))
++        .first()
++    )
++    if session is None:
++        return False
++    session.revoked_at = _utcnow()
++    session.revoked_reason = reason
++    db.commit()
++    return True
++
++
++def revoke_by_token_payload(db: Session, payload: dict, reason: str) -> bool:
++    """ابطال بر اساس payload یک توکن تمدیدِ از قبل verify‌شده."""
++    jti = payload.get("jti")
++    if not jti:
++        return False
++    return revoke_session(db, jti, reason=reason)
++
++
++def revoke_all_for_user(db: Session, user_id: int, reason: str = REVOKE_REASON_USER_DISABLED) -> int:
++    """ابطال همه‌ی نشست‌های فعال یک کاربر (غیرفعال‌سازی/حذف)."""
++    now = _utcnow()
++    count = (
++        db.query(RefreshSession)
++        .filter(
++            RefreshSession.user_id == user_id,
++            RefreshSession.revoked_at.is_(None),
++        )
++        .update(
++            {"revoked_at": now, "revoked_reason": reason},
++            synchronize_session=False,
++        )
++    )
++    db.commit()
++    if count:
++        app_logger.info(
++            f"[Auth] all refresh sessions revoked for user {user_id} ({reason}): {count}."
++        )
++    return int(count)
++
++
++def cleanup_expired(db: Session, retention_days: int | None = None) -> int:
++    """
++    حذف فیزیکی نشست‌های منقضی/باطلِ قدیمی تا جدول رشد بی‌پایان نکند.
++    رکوردها تا retention_DAYS روز پس از انقضا نگه داشته می‌شوند
++    (برای ردیابی ممیزی)، بعد حذف می‌شوند.
++    """
++    if retention_days is None:
++        retention_days = settings.REFRESH_TOKEN_EXPIRE_DAYS
++    cutoff = _utcnow() - timedelta(days=retention_days)
++    count = (
++        db.query(RefreshSession)
++        .filter(RefreshSession.expires_at < cutoff)
++        .delete(synchronize_session=False)
++    )
++    db.commit()
++    return int(count)
+diff --git a/backend/docker-compose.yml b/backend/docker-compose.yml
+index 512c3ff..aa8434f 100644
+--- a/backend/docker-compose.yml
++++ b/backend/docker-compose.yml
+@@ -41,6 +41,10 @@ services:
+     container_name: hadiflow_api
+     restart: always
+     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
++    # SECURITY/INGRESS: این پورت HTTP بدون TLS است. در تولید باید پشت
++    # یک reverse proxy با TLS قرار بگیرد (backend/README.md § استقرار).
++    # اگر proxy روی همین میزبان است، bind را محدود کنید:
++    #   ports: - "127.0.0.1:8000:8000"
+     ports:
+       - "8000:8000"
+     depends_on:
+@@ -55,7 +59,8 @@ services:
+     volumes:
+       - uploads_data:/app/uploads
+     healthcheck:
+-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
++      # DB-aware: تا وقتی PostgreSQL واقعاً پاسخ ندهد، api سالم حساب نمی‌شود
++      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+       interval: 30s
+       timeout: 5s
+       start_period: 15s
+diff --git a/backend/requirements.txt b/backend/requirements.txt
+index 833ee5d..d6a8ab0 100644
+--- a/backend/requirements.txt
++++ b/backend/requirements.txt
+@@ -15,5 +15,5 @@ python-dotenv==1.2.3
+ requests==2.34.2
+ apscheduler==3.11.0
+ loguru==0.7.3
+-jdatetime==5.0.0
++jdatetime==5.3.0
+ python-multipart==0.0.32
+diff --git a/backend/tests/test_audit_unit_regressions.py b/backend/tests/test_audit_unit_regressions.py
+new file mode 100644
+index 0000000..e6b1ed3
+--- /dev/null
++++ b/backend/tests/test_audit_unit_regressions.py
+@@ -0,0 +1,314 @@
++"""
++Environment-independent regression tests for the audit fixes
++(HadiFlow_AUDIT_REPORT.md) and the refresh-session security work.
++
++این فایل عمداً هیچ دیتابیس/شبکه‌ای لازم ندارد (مثل conftest فقط
++متغیرهای محیطی settings را می‌خواهد) تا در هر محیطی — حتی بدون
++PostgreSQL — اجرا شود و حداقلِ پوشش رگرسیون برای اصلاحات ممیزی
++وجود. تست‌های یکپارچه‌سازی (DB-دار) در
++tests/test_refresh_rotation.py و tests/test_followup_due_reminders.py
++هستند.
++"""
++import importlib.util
++import inspect
++import os
++
++import pytest
++from fastapi import FastAPI
++from fastapi.testclient import TestClient
++from pydantic import ValidationError
++
++_VERSIONS_DIR = os.path.normpath(
++    os.path.join(os.path.dirname(__file__), "..", "alembic", "versions")
++)
++
++
++def _load_migration(filename: str):
++    """بارگذاری فایل مهاجرت مستقیم از مسیر (نه به‌عنوان پکیج)."""
++    path = os.path.join(_VERSIONS_DIR, filename)
++    spec = importlib.util.spec_from_file_location(filename[:-3], path)
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++# -----------------------------------------------------------
++# 1) Settings hardening (audit item: insecure debug/secret defaults)
++# -----------------------------------------------------------
++def _make_settings(**overrides):
++    from app.config.settings import Settings
++
++    base = {
++        "SECRET_KEY": "x" * 48,
++        "DATABASE_URL": "postgresql+psycopg2://u:p@localhost:5432/db",
++    }
++    base.update(overrides)
++    return Settings(_env_file=None, **base)
++
++
++def test_debug_defaults_to_false():
++    settings_obj = _make_settings()
++    assert settings_obj.DEBUG is False, "DEBUG must default to False (secure default)"
++
++
++def test_secret_key_shorter_than_32_bytes_is_rejected():
++    with pytest.raises(ValidationError):
++        _make_settings(SECRET_KEY="short-key-only-31-bytes-long!!")  # 30 bytes
++
++
++def test_secret_key_of_32_bytes_is_accepted():
++    settings_obj = _make_settings(SECRET_KEY="k" * 32)
++    assert settings_obj.SECRET_KEY == "k" * 32
++
++
++# -----------------------------------------------------------
++# 2) Alembic downgrades must not be destructive
++# -----------------------------------------------------------
++def test_baseline_downgrade_is_irreversible():
++    module = _load_migration("b0c1d2e3f4a5_baseline_core_tables.py")
++    with pytest.raises(RuntimeError, match="disabled on purpose"):
++        module.downgrade()
++
++
++def test_user_fields_downgrade_preserves_parent_columns():
++    module = _load_migration("e84148be659e_update_user_fields.py")
++    source = inspect.getsource(module.downgrade)
++    # created_at / is_active belong to the PARENT revision 6ea849d71db2;
++    # this migration added only is_superuser/updated_at/last_login.
++    # (statement-level check: comments may legitimately name the columns)
++    assert 'drop_column("users", "created_at"' not in source
++    assert 'drop_column("users", "is_active"' not in source
++    assert 'drop_column("users", "last_login"' in source
++    assert 'drop_column("users", "updated_at"' in source
++    assert 'drop_column("users", "is_superuser"' in source
++
++
++# -----------------------------------------------------------
++# 3) ETag middleware must Vary on Authorization for authed GETs
++# -----------------------------------------------------------
++def _etag_app():
++    from app.middleware.etag import ETagMiddleware
++
++    app = FastAPI()
++    app.add_middleware(ETagMiddleware)
++
++    @app.get("/private")
++    def private():
++        return {"hello": "world"}
++
++    return app
++
++
++def test_etag_adds_vary_authorization_for_authenticated_requests():
++    client = TestClient(_etag_app())
++    res = client.get("/private", headers={"Authorization": "Bearer abc"})
++    assert res.status_code == 200
++    vary = res.headers.get("vary", "")
++    assert "authorization" in vary.lower()
++
++
++def test_etag_304_keeps_vary_authorization():
++    client = TestClient(_etag_app())
++    first = client.get("/private", headers={"Authorization": "Bearer abc"})
++    etag = first.headers["etag"]
++    second = client.get(
++        "/private",
++        headers={"Authorization": "Bearer abc", "If-None-Match": etag},
++    )
++    assert second.status_code == 304
++    assert "authorization" in second.headers.get("vary", "").lower()
++
++
++def test_etag_no_vary_for_anonymous_requests():
++    client = TestClient(_etag_app())
++    res = client.get("/private")
++    assert "authorization" not in res.headers.get("vary", "").lower()
++
++
++# -----------------------------------------------------------
++# 4) Security headers middleware (audit item: browser hardening)
++# -----------------------------------------------------------
++def test_security_headers_middleware_sets_baseline_headers():
++    from app.middleware.security_headers import SecurityHeadersMiddleware
++
++    app = FastAPI()
++    app.add_middleware(SecurityHeadersMiddleware)
++
++    @app.get("/x")
++    def x():
++        return {"ok": True}
++
++    res = TestClient(app).get("/x")
++    assert res.headers["x-content-type-options"] == "nosniff"
++    assert res.headers["x-frame-options"] == "DENY"
++    assert res.headers["referrer-policy"] == "no-referrer"
++    assert res.headers["cache-control"] == "no-store"
++
++
++# -----------------------------------------------------------
++# 5) Notification vocabulary includes the Rule 4 type
++# -----------------------------------------------------------
++def test_follow_up_due_is_a_registered_notification_type():
++    from app.models.notification import NOTIFICATION_TYPES
++
++    assert "follow_up_due" in NOTIFICATION_TYPES
++
++
++# -----------------------------------------------------------
++# 6) Dashboard boundary parsing: date-only date_to is INCLUSIVE
++#    and interpreted on Tehran calendar days (audit item: UTC/
++#    naive-Tehran mixing).
++# -----------------------------------------------------------
++def test_parse_datetime_bound_gregorian_date_only_is_tehran_day():
++    from app.api.routes.dashboard import _parse_datetime_bound
++
++    bound = _parse_datetime_bound("2026-08-01")
++    # midnight Tehran == 2026-07-31T20:30:00Z (Tehran is UTC+3:30)
++    assert bound.isoformat() == "2026-07-31T20:30:00+00:00"
++
++
++def test_parse_datetime_bound_inclusive_end_advances_one_day():
++    from app.api.routes.dashboard import _parse_datetime_bound
++
++    bound = _parse_datetime_bound("2026-08-01", inclusive_end=True)
++    # end of Aug 1 (Tehran) == start of Aug 2 (Tehran) == Aug 1 20:30Z
++    assert bound.isoformat() == "2026-08-01T20:30:00+00:00"
++
++
++def test_parse_datetime_bound_explicit_time_is_not_advanced():
++    from app.api.routes.dashboard import _parse_datetime_bound
++
++    bound = _parse_datetime_bound("2026-08-01T10:30:00", inclusive_end=True)
++    assert bound.isoformat() == "2026-08-01T10:30:00+00:00"
++
++
++def test_parse_datetime_bound_jalali_inclusive_end():
++    from app.api.routes.dashboard import _parse_datetime_bound
++
++    exact = _parse_datetime_bound("1405/05/10")
++    inclusive = _parse_datetime_bound("1405/05/10", inclusive_end=True)
++    assert (inclusive - exact).total_seconds() == 24 * 3600
++
++
++# -----------------------------------------------------------
++# 7) Login rate limiter (audit item: brute-force control)
++# -----------------------------------------------------------
++def _fake_request(ip="203.0.113.10", headers=None):
++    from starlette.datastructures import Headers
++
++    class _Client:
++        host = ip
++
++    class _Req:
++        client = _Client()
++
++        def __init__(self, hdrs):
++            self.headers = Headers(hdrs or {})
++
++    return _Req(headers or {})
++
++
++def test_rate_limiter_blocks_after_max_failures_per_account():
++    from fastapi import HTTPException
++
++    from app.core import rate_limit
++
++    rate_limit.clear_login_counters()
++    request = _fake_request()
++    max_failures = rate_limit.settings.LOGIN_MAX_FAILURES_PER_ACCOUNT
++
++    for _ in range(max_failures):
++        rate_limit.login_rate_guard(request, "09121111111")
++        rate_limit.report_login_failure(request, "09121111111")
++
++    with pytest.raises(HTTPException) as exc_info:
++        rate_limit.login_rate_guard(request, "09121111111")
++    assert exc_info.value.status_code == 429
++    assert "Retry-After" in exc_info.value.headers
++
++
++def test_rate_limiter_equivalent_mobile_forms_share_one_budget():
++    from fastapi import HTTPException
++
++    from app.core import rate_limit
++
++    rate_limit.clear_login_counters()
++    request = _fake_request(ip="203.0.113.11")
++    max_failures = rate_limit.settings.LOGIN_MAX_FAILURES_PER_ACCOUNT
++
++    # attacker alternates between raw and normalized spellings of the
++    # SAME number — the canonical identity key must merge them.
++    forms = ["09121111111", "+989121111111", "۰۹۱۲۱۱۱۱۱۱۱"]
++    for i in range(max_failures):
++        form = forms[i % len(forms)]
++        rate_limit.login_rate_guard(request, form)
++        rate_limit.report_login_failure(request, form)
++
++    with pytest.raises(HTTPException):
++        rate_limit.login_rate_guard(request, "09121111111")
++
++
++def test_rate_limiter_success_resets_account_budget_but_not_ip_budget():
++    from fastapi import HTTPException
++
++    from app.core import rate_limit
++
++    rate_limit.clear_login_counters()
++    request = _fake_request(ip="203.0.113.12")
++    max_failures = rate_limit.settings.LOGIN_MAX_FAILURES_PER_ACCOUNT
++
++    for _ in range(max_failures):
++        rate_limit.report_login_failure(request, "09122222222")
++
++    rate_limit.report_login_success(request, "09122222222")
++    # account budget restored: guard passes again
++    rate_limit.login_rate_guard(request, "09122222222")
++
++
++def test_rate_limiter_per_ip_budget_blocks_credential_stuffing():
++    from fastapi import HTTPException
++
++    from app.core import rate_limit
++
++    rate_limit.clear_login_counters()
++    request = _fake_request(ip="203.0.113.13")
++    max_ip = rate_limit.settings.LOGIN_MAX_FAILURES_PER_IP
++
++    for i in range(max_ip):
++        rate_limit.login_rate_guard(request, f"091200{i:05d}")
++        rate_limit.report_login_failure(request, f"091200{i:05d}")
++
++    # a brand-new account number must STILL be blocked from this IP
++    with pytest.raises(HTTPException) as exc_info:
++        rate_limit.login_rate_guard(request, "09129999999")
++    assert exc_info.value.status_code == 429
++
++
++# -----------------------------------------------------------
++# 8) Canonical mobile identity (audit item: normalization)
++# -----------------------------------------------------------
++def test_normalize_mobile_equivalence_classes():
++    from app.core.text_normalization import normalize_mobile
++
++    forms = ["09121111111", "+989121111111", "00989121111111", "۰۹۱۲۱۱۱۱۱۱۱", "9121111111"]
++    canonical = {normalize_mobile(f) for f in forms}
++    assert canonical == {"09121111111"}
++
++
++# -----------------------------------------------------------
++# 9) Migration graph must stay linear with a single head
++# -----------------------------------------------------------
++def test_migration_graph_has_single_head():
++    revisions = {}
++    downs = set()
++    for name in os.listdir(_VERSIONS_DIR):
++        if not name.endswith(".py"):
++            continue
++        module = _load_migration(name)
++        revisions[module.revision] = name
++        if module.down_revision:
++            downs.add(module.down_revision)
++
++    heads = [rev for rev in revisions if rev not in downs]
++    assert len(heads) == 1, f"expected exactly one migration head, got {heads}"
++    assert heads[0] == "d2e6b4a8c1f5", "head should be the mobile_normalized migration"
+diff --git a/backend/tests/test_followup_due_reminders.py b/backend/tests/test_followup_due_reminders.py
+new file mode 100644
+index 0000000..4cdfecf
+--- /dev/null
++++ b/backend/tests/test_followup_due_reminders.py
+@@ -0,0 +1,300 @@
++"""
++Regression tests for app/scheduler/jobs.py::check_due_followups (Rule 4).
++
++Before this fix, Lead.next_follow_up was purely passive: it powered the
++"today"/"overdue" smart filters and dashboard counts, but nothing ever
++created an in-app notification when a follow-up actually became due. A
++rep who wasn't already looking at the Tasks page had no way to know a
++follow-up had come due. This suite verifies the new job creates exactly
++one notification per due follow-up, respects the dedup flag, skips
++inactive owners without looping forever, and that setting a new
++follow-up date re-arms the reminder.
++
++Like test_scheduler_jobs.py, these call the job function directly
++against the database rather than going through the HTTP API.
++"""
++from datetime import datetime, timedelta, timezone
++from uuid import uuid4
++
++from app.database.database import SessionLocal
++from app.models.lead import Lead
++from app.models.notification import Notification
++from app.models.user import User
++from app.scheduler.jobs import check_due_followups
++
++
++def unique_mobile():
++    return f"0912{str(uuid4().int)[:7]}"
++
++
++def _get_admin(db):
++    admin = db.query(User).filter(User.mobile == "09120000000").first()
++    assert admin is not None, "seeded admin user (09120000000) must exist"
++    return admin
++
++
++def test_due_followup_creates_exactly_one_notification():
++    """
++    A lead whose next_follow_up is in the past, on an open lead, with
++    follow_up_notified still False, must get exactly one
++    'follow_up_due' notification for its owner.
++    """
++    db = SessionLocal()
++    try:
++        admin = _get_admin(db)
++        lead = Lead(
++            customer_name="Followup Regression - Due Now",
++            mobile=unique_mobile(),
++            mobile_normalized=unique_mobile(),
++            source="test",
++            need="test",
++            status="contacted",
++            owner_id=admin.id,
++            created_by_id=admin.id,
++            next_follow_up=datetime.now(timezone.utc) - timedelta(minutes=5),
++            follow_up_notified=False,
++        )
++        db.add(lead)
++        db.commit()
++        db.refresh(lead)
++        lead_id = lead.id
++        owner_id = admin.id
++
++        before_count = (
++            db.query(Notification)
++            .filter(
++                Notification.user_id == owner_id,
++                Notification.lead_id == lead_id,
++                Notification.notification_type == "follow_up_due",
++            )
++            .count()
++        )
++        assert before_count == 0
++    finally:
++        db.close()
++
++    check_due_followups()
++
++    db2 = SessionLocal()
++    try:
++        lead_after = db2.query(Lead).filter(Lead.id == lead_id).first()
++        assert lead_after.follow_up_notified is True
++
++        notifications = (
++            db2.query(Notification)
++            .filter(
++                Notification.user_id == owner_id,
++                Notification.lead_id == lead_id,
++                Notification.notification_type == "follow_up_due",
++            )
++            .all()
++        )
++        assert len(notifications) == 1, (
++            "exactly one follow_up_due notification should be created "
++            "for a lead whose follow-up just became due"
++        )
++    finally:
++        db2.close()
++
++
++def test_due_followup_does_not_fire_twice_for_the_same_due_date():
++    """
++    Running the job twice for the same lead/due-date must not create a
++    second notification: follow_up_notified must prevent re-firing.
++    """
++    db = SessionLocal()
++    try:
++        admin = _get_admin(db)
++        lead = Lead(
++            customer_name="Followup Regression - No Duplicate",
++            mobile=unique_mobile(),
++            mobile_normalized=unique_mobile(),
++            source="test",
++            need="test",
++            status="contacted",
++            owner_id=admin.id,
++            created_by_id=admin.id,
++            next_follow_up=datetime.now(timezone.utc) - timedelta(minutes=5),
++            follow_up_notified=False,
++        )
++        db.add(lead)
++        db.commit()
++        db.refresh(lead)
++        lead_id = lead.id
++        owner_id = admin.id
++    finally:
++        db.close()
++
++    check_due_followups()
++    check_due_followups()  # second run, same due date, no new activity
++
++    db2 = SessionLocal()
++    try:
++        notifications = (
++            db2.query(Notification)
++            .filter(
++                Notification.user_id == owner_id,
++                Notification.lead_id == lead_id,
++                Notification.notification_type == "follow_up_due",
++            )
++            .all()
++        )
++        assert len(notifications) == 1, (
++            "the job must not create a second notification for a "
++            "follow-up that was already notified"
++        )
++    finally:
++        db2.close()
++
++
++def test_future_followup_does_not_fire_yet():
++    """
++    A lead whose next_follow_up is still in the future must not
++    generate a notification.
++    """
++    db = SessionLocal()
++    try:
++        admin = _get_admin(db)
++        lead = Lead(
++            customer_name="Followup Regression - Not Due Yet",
++            mobile=unique_mobile(),
++            mobile_normalized=unique_mobile(),
++            source="test",
++            need="test",
++            status="contacted",
++            owner_id=admin.id,
++            created_by_id=admin.id,
++            next_follow_up=datetime.now(timezone.utc) + timedelta(hours=2),
++            follow_up_notified=False,
++        )
++        db.add(lead)
++        db.commit()
++        db.refresh(lead)
++        lead_id = lead.id
++        owner_id = admin.id
++    finally:
++        db.close()
++
++    check_due_followups()
++
++    db2 = SessionLocal()
++    try:
++        lead_after = db2.query(Lead).filter(Lead.id == lead_id).first()
++        assert lead_after.follow_up_notified is False
++
++        notifications = (
++            db2.query(Notification)
++            .filter(
++                Notification.user_id == owner_id,
++                Notification.lead_id == lead_id,
++                Notification.notification_type == "follow_up_due",
++            )
++            .all()
++        )
++        assert len(notifications) == 0
++    finally:
++        db2.close()
++
++
++def test_closed_lead_does_not_fire():
++    """
++    A lead that's already won/lost must not trigger a follow-up
++    reminder even if next_follow_up is technically in the past (stale
++    data from before closing).
++    """
++    db = SessionLocal()
++    try:
++        admin = _get_admin(db)
++        lead = Lead(
++            customer_name="Followup Regression - Closed Lead",
++            mobile=unique_mobile(),
++            mobile_normalized=unique_mobile(),
++            source="test",
++            need="test",
++            status="final_factor",
++            owner_id=admin.id,
++            created_by_id=admin.id,
++            next_follow_up=datetime.now(timezone.utc) - timedelta(minutes=5),
++            follow_up_notified=False,
++        )
++        db.add(lead)
++        db.commit()
++        db.refresh(lead)
++        lead_id = lead.id
++        owner_id = admin.id
++    finally:
++        db.close()
++
++    check_due_followups()
++
++    db2 = SessionLocal()
++    try:
++        notifications = (
++            db2.query(Notification)
++            .filter(
++                Notification.user_id == owner_id,
++                Notification.lead_id == lead_id,
++                Notification.notification_type == "follow_up_due",
++            )
++            .all()
++        )
++        assert len(notifications) == 0, (
++            "a closed (won/lost) lead must never trigger a follow-up "
++            "reminder, even with a stale past-due next_follow_up"
++        )
++    finally:
++        db2.close()
++
++
++def test_setting_a_new_followup_rearms_the_reminder():
++    """
++    Regression test for the reset logic in create_activity /
++    update_lead_followup: once a lead has been notified for a given
++    due date, setting a *new* next_follow_up must clear
++    follow_up_notified so the new date can notify again.
++    """
++    from app.crud.activity import create_activity
++    from app.schemas.activity import ActivityCreate
++
++    db = SessionLocal()
++    try:
++        admin = _get_admin(db)
++        lead = Lead(
++            customer_name="Followup Regression - Rearm On Reschedule",
++            mobile=unique_mobile(),
++            mobile_normalized=unique_mobile(),
++            source="test",
++            need="test",
++            status="contacted",
++            owner_id=admin.id,
++            created_by_id=admin.id,
++            next_follow_up=datetime.now(timezone.utc) - timedelta(minutes=5),
++            follow_up_notified=True,  # already notified for the old date
++        )
++        db.add(lead)
++        db.commit()
++        db.refresh(lead)
++        lead_id = lead.id
++
++        create_activity(
++            db,
++            lead,
++            admin,
++            ActivityCreate(
++                activity_type="call",
++                title="Rescheduled call",
++                next_follow_up=datetime.now(timezone.utc) + timedelta(days=1),
++            ),
++        )
++    finally:
++        db.close()
++
++    db2 = SessionLocal()
++    try:
++        lead_after = db2.query(Lead).filter(Lead.id == lead_id).first()
++        assert lead_after.follow_up_notified is False, (
++            "setting a new next_follow_up must reset follow_up_notified "
++            "so the new due date can trigger a reminder of its own"
++        )
++    finally:
++        db2.close()
+diff --git a/backend/tests/test_refresh_rotation.py b/backend/tests/test_refresh_rotation.py
+new file mode 100644
+index 0000000..aae4747
+--- /dev/null
++++ b/backend/tests/test_refresh_rotation.py
+@@ -0,0 +1,289 @@
++"""
++Integration tests: server-side refresh-token revocation/rotation,
++logout, deactivation revocation, canonical mobile identity and
++login rate limiting.
++
++این تست‌ها همان سه ضعف امنیتیِ «باقی‌مانده» در گزارش ممیزی
++(HadiFlow_AUDIT_REPORT.md) را پوشش می‌دهند:
++  1. HIGH — refresh-token replay / نبودِ revocation سمت سرور
++  2. HIGH — نبودِ rate limiting روی /auth/login
++  3. MEDIUM — هویت موبایل کاربر نرمال‌سازی نمی‌شد
++
++نیاز به PostgreSQL واقعی + کاربر ادمین seed‌شده دارند
++(09120000000 / Admin123! — همان قرارداد بقیه‌ی تست‌های یکپارچه‌سازی).
++"""
++from uuid import uuid4
++
++from fastapi.testclient import TestClient
++
++from app.auth.jwt_handler import TOKEN_TYPE_REFRESH, verify_token
++from app.config.settings import settings
++from app.core import rate_limit
++from app.database.database import SessionLocal
++from app.main import app
++from app.models.refresh_session import RefreshSession
++from app.models.user import User
++
++client = TestClient(app)
++
++ADMIN_MOBILE = "09120000000"
++ADMIN_PASSWORD = "Admin123!"
++
++
++def unique_mobile(prefix: str = "0913") -> str:
++    return f"{prefix}{str(uuid4().int)[:7]}"
++
++
++def _admin_headers() -> dict:
++    res = client.post(
++        "/auth/login",
++        data={"username": ADMIN_MOBILE, "password": ADMIN_PASSWORD},
++    )
++    assert res.status_code == 200, res.text
++    return {"Authorization": f"Bearer {res.json()['access_token']}"}
++
++
++def _login(mobile: str, password: str):
++    return client.post("/auth/login", data={"username": mobile, "password": password})
++
++
++def _refresh(refresh_token: str):
++    return client.post("/auth/refresh-token", json={"refresh_token": refresh_token})
++
++
++def _jti_of(refresh_token: str) -> str:
++    payload = verify_token(refresh_token, expected_type=TOKEN_TYPE_REFRESH)
++    assert payload is not None, "refresh token must be a valid signed refresh JWT"
++    return payload["jti"]
++
++
++def _session_row(jti: str) -> RefreshSession | None:
++    db = SessionLocal()
++    try:
++        return db.query(RefreshSession).filter(RefreshSession.jti == jti).first()
++    finally:
++        db.close()
++
++
++# -----------------------------------------------------------
++# 1) Login must persist a server-side session for the jti
++# -----------------------------------------------------------
++def test_login_creates_server_side_refresh_session():
++    res = _login(ADMIN_MOBILE, ADMIN_PASSWORD)
++    assert res.status_code == 200
++    refresh_token = res.json()["refresh_token"]
++
++    row = _session_row(_jti_of(refresh_token))
++    assert row is not None, "refresh token jti must be persisted server-side"
++    assert row.revoked_at is None
++    assert row.expires_at is not None
++
++
++# -----------------------------------------------------------
++# 2) Refresh must ROTATE: new tokens, old session revoked
++# -----------------------------------------------------------
++def test_refresh_rotates_tokens():
++    res = _login(ADMIN_MOBILE, ADMIN_PASSWORD)
++    old_refresh = res.json()["refresh_token"]
++    old_jti = _jti_of(old_refresh)
++
++    res = _refresh(old_refresh)
++    assert res.status_code == 200, res.text
++    body = res.json()
++    assert body["access_token"]
++    new_refresh = body["refresh_token"]
++    assert new_refresh != old_refresh, "refresh token must rotate on every use"
++
++    old_row = _session_row(old_jti)
++    assert old_row.revoked_at is not None
++    assert old_row.revoked_reason == "rotated"
++    assert old_row.replaced_by_jti == _jti_of(new_refresh)
++
++    # the rotated token itself works (chain continues)
++    res2 = _refresh(new_refresh)
++    assert res2.status_code == 200, res2.text
++
++
++# -----------------------------------------------------------
++# 3) Replay of a consumed token must kill the whole family
++# -----------------------------------------------------------
++def test_reuse_of_consumed_token_revokes_entire_family():
++    res = _login(ADMIN_MOBILE, ADMIN_PASSWORD)
++    first = res.json()["refresh_token"]
++
++    res = _refresh(first)
++    assert res.status_code == 200
++    second = res.json()["refresh_token"]
++
++    # attacker (or a stale client) replays the consumed first token
++    res = _refresh(first)
++    assert res.status_code == 401
++
++    # reuse detection must revoke the family: even the legitimate
++    # rotated token is dead now — recovery is a fresh login.
++    res = _refresh(second)
++    assert res.status_code == 401
++
++    db = SessionLocal()
++    try:
++        family_rows = (
++            db.query(RefreshSession)
++            .filter(RefreshSession.jti.in_([_jti_of(first), _jti_of(second)]))
++            .all()
++        )
++        reasons = {row.revoked_reason for row in family_rows}
++        assert "reuse_detected" in reasons
++    finally:
++        db.close()
++
++
++# -----------------------------------------------------------
++# 4) Logout must revoke server-side (not just localStorage)
++# -----------------------------------------------------------
++def test_logout_revokes_refresh_session():
++    res = _login(ADMIN_MOBILE, ADMIN_PASSWORD)
++    refresh_token = res.json()["refresh_token"]
++
++    res = client.post("/auth/logout", json={"refresh_token": refresh_token})
++    assert res.status_code == 204
++
++    assert _refresh(refresh_token).status_code == 401
++
++
++def test_logout_is_silent_for_unknown_or_invalid_tokens():
++    # no session-state oracle: garbage tokens still get 204
++    res = client.post("/auth/logout", json={"refresh_token": "not.a.jwt"})
++    assert res.status_code == 204
++
++
++def test_logout_twice_is_idempotent():
++    res = _login(ADMIN_MOBILE, ADMIN_PASSWORD)
++    refresh_token = res.json()["refresh_token"]
++    assert client.post("/auth/logout", json={"refresh_token": refresh_token}).status_code == 204
++    assert client.post("/auth/logout", json={"refresh_token": refresh_token}).status_code == 204
++
++
++# -----------------------------------------------------------
++# 5) Deactivating a user must cut their live sessions
++# -----------------------------------------------------------
++def test_deactivated_user_refresh_sessions_are_revoked():
++    headers = _admin_headers()
++    mobile = unique_mobile("0914")
++    res = client.post(
++        "/users/",
++        headers=headers,
++        json={
++            "full_name": "Rotation Test User",
++            "mobile": mobile,
++            "password": "StrongPass!123",
++            "role": "sales",
++        },
++    )
++    assert res.status_code == 201, res.text
++    user_id = res.json()["id"]
++
++    res = _login(mobile, "StrongPass!123")
++    assert res.status_code == 200, res.text
++    refresh_token = res.json()["refresh_token"]
++
++    res = client.put(
++        f"/users/{user_id}",
++        headers=headers,
++        json={"is_active": False},
++    )
++    assert res.status_code == 200, res.text
++
++    # the live refresh token must be dead immediately
++    assert _refresh(refresh_token).status_code == 401
++    # and login returns the uniform 401 (no account-state leak)
++    assert _login(mobile, "StrongPass!123").status_code == 401
++
++
++# -----------------------------------------------------------
++# 6) Canonical mobile identity
++# -----------------------------------------------------------
++def test_user_can_login_with_any_equivalent_mobile_form():
++    headers = _admin_headers()
++    base = unique_mobile("0915")            # 0915xxxxxxx
++    intl = f"+98{base[1:]}"                 # +98915xxxxxxx
++
++    res = client.post(
++        "/users/",
++        headers=headers,
++        json={
++            "full_name": "Canonical Mobile User",
++            "mobile": intl,
++            "password": "StrongPass!123",
++            "role": "sales",
++        },
++    )
++    assert res.status_code == 201, res.text
++
++    # stored raw as +98…, but login with the plain 09… form must work
++    res = _login(base, "StrongPass!123")
++    assert res.status_code == 200, res.text
++
++    # a second account with an equivalent number must be refused
++    res = client.post(
++        "/users/",
++        headers=headers,
++        json={
++            "full_name": "Impostor",
++            "mobile": f"0098{base[1:]}",
++            "password": "StrongPass!123",
++            "role": "sales",
++        },
++    )
++    assert res.status_code == 400
++    assert "exists" in res.json()["detail"].lower() or "Mobile" in res.json()["detail"]
++
++
++def test_mobile_normalized_column_is_populated():
++    db = SessionLocal()
++    try:
++        admin = db.query(User).filter(User.mobile == ADMIN_MOBILE).first()
++        assert admin is not None
++        assert admin.mobile_normalized == ADMIN_MOBILE
++    finally:
++        db.close()
++
++
++# -----------------------------------------------------------
++# 7) Login rate limiting (brute-force control)
++# -----------------------------------------------------------
++def test_login_is_rate_limited_after_repeated_failures():
++    rate_limit.clear_login_counters()
++    try:
++        mobile = unique_mobile("0916")
++        max_failures = settings.LOGIN_MAX_FAILURES_PER_ACCOUNT
++
++        for _ in range(max_failures):
++            res = _login(mobile, "wrong-password")
++            assert res.status_code == 401
++
++        res = _login(mobile, "wrong-password")
++        assert res.status_code == 429
++        assert "Retry-After" in res.headers
++
++        # even the CORRECT password is locked out while the budget is spent
++        # (account does not exist here, but the guard runs before lookup)
++        res = _login(mobile, "whatever")
++        assert res.status_code == 429
++    finally:
++        rate_limit.clear_login_counters()
++
++
++def test_successful_login_restores_account_budget():
++    rate_limit.clear_login_counters()
++    try:
++        # burn most of the admin account's failure budget
++        for _ in range(settings.LOGIN_MAX_FAILURES_PER_ACCOUNT - 1):
++            assert _login(ADMIN_MOBILE, "wrong-password").status_code == 401
++
++        # one success resets the per-account budget
++        assert _login(ADMIN_MOBILE, ADMIN_PASSWORD).status_code == 200
++
++        for _ in range(settings.LOGIN_MAX_FAILURES_PER_ACCOUNT - 1):
++            assert _login(ADMIN_MOBILE, "wrong-password").status_code == 401
++    finally:
++        rate_limit.clear_login_counters()
+diff --git a/frontend/src/api/client.js b/frontend/src/api/client.js
+index 0dba0f6..5b1c2a3 100644
+--- a/frontend/src/api/client.js
++++ b/frontend/src/api/client.js
+@@ -1,24 +1,23 @@
+-import { api, invalidate } from "./requestCache";
++import { api, bumpSessionEpoch } from "./requestCache";
+ 
+ export { api };
+ 
+ /** Drop every cached response (used at login/logout boundaries). */
+ export function clearRequestCache() {
+-  invalidate();
++  bumpSessionEpoch();
+ }
+ 
+-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+-
+ const ACCESS_TOKEN_KEY = "hadiflow_access_token";
+ const REFRESH_TOKEN_KEY = "hadiflow_refresh_token";
+ 
+ function clearSession() {
+   localStorage.removeItem(ACCESS_TOKEN_KEY);
+   localStorage.removeItem(REFRESH_TOKEN_KEY);
+-  // Cached payloads belong to the previous session; without this a
+-  // different user logging in on the same browser could be served
++  // Cached payloads belong to the previous session; bumping the epoch
++  // invalidates them AND namespaces any entry still in flight, so a
++  // different user logging in on the same browser can never be served
+   // another user's data from the TTL/offline cache.
+-  invalidate();
++  bumpSessionEpoch();
+   window.dispatchEvent(new Event("auth-unauthorized"));
+ }
+ 
+@@ -41,6 +40,12 @@ async function refreshAccessToken() {
+       .then((res) => {
+         const newToken = res.data?.access_token;
+         if (newToken) localStorage.setItem(ACCESS_TOKEN_KEY, newToken);
++        // Refresh tokens now ROTATE server-side (replay of a consumed
++        // token revokes the whole session family). Persisting the new
++        // refresh token is mandatory — keeping the old one would lock
++        // the user out on the next refresh.
++        const newRefresh = res.data?.refresh_token;
++        if (newRefresh) localStorage.setItem(REFRESH_TOKEN_KEY, newRefresh);
+         return newToken || null;
+       })
+       .catch(() => null)
+@@ -79,7 +84,7 @@ api.interceptors.response.use(
+ // ---- Auth ----
+ export async function login(mobile, password) {
+   // Never mix cached data across accounts on a shared browser.
+-  invalidate();
++  bumpSessionEpoch();
+   const form = new URLSearchParams();
+   form.append("username", mobile);
+   form.append("password", password);
+@@ -92,6 +97,24 @@ export async function getMe() {
+   const res = await api.get("/auth/me");
+   return res.data;
+ }
++/**
++ * Server-side logout: revokes the refresh session so the token cannot be
++ * replayed even if it was copied before logout. Best-effort — callers
++ * must clear local state regardless of the outcome.
++ */
++export async function logoutSession() {
++  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
++  if (!refreshToken) return;
++  try {
++    await api.post(
++      "/auth/logout",
++      { refresh_token: refreshToken },
++      { skipAuthRefresh: true },
++    );
++  } catch {
++    // network/API failure must not block local logout
++  }
++}
+ export async function getDashboard() {
+   const res = await api.get("/dashboard/");
+   return res.data;
+diff --git a/frontend/src/api/requestCache.js b/frontend/src/api/requestCache.js
+index 8771eda..d9c9d4c 100644
+--- a/frontend/src/api/requestCache.js
++++ b/frontend/src/api/requestCache.js
+@@ -24,9 +24,22 @@ api.interceptors.request.use((config) => {
+ // access token force-logged the user out instead of silently refreshing.
+ 
+ const DEFAULT_TTL = 30_000;
+-const cache = new Map();   // key -> { data, etag, expiresAt }
++const cache = new Map();   // key -> { data, etag, expiresAt, epoch }
+ const inflight = new Map(); // key -> Promise
+ 
++// Session namespace: every login/logout/session-clear boundary bumps the
++// epoch, and cached entries are only served when they were stored under the
++// CURRENT epoch. This guarantees a second account logging in on the same
++// browser/tab can never be served the previous account's cached CRM
++// payloads, even if an invalidate() call is missed or races with an
++// in-flight response landing after the boundary.
++let sessionEpoch = 0;
++
++export function bumpSessionEpoch() {
++  sessionEpoch += 1;
++  invalidate();
++}
++
+ const stableKey = (url, params) =>
+   url + (params ? "?" + JSON.stringify(params, Object.keys(params).sort()) : "");
+ 
+@@ -34,7 +47,9 @@ export async function cachedGet(url, { params, ttl = DEFAULT_TTL, force = false
+   const key = stableKey(url, params);
+   const entry = cache.get(key);
+ 
+-  if (!force && entry && entry.expiresAt > Date.now()) return entry.data;
++  if (!force && entry && entry.epoch === sessionEpoch && entry.expiresAt > Date.now()) {
++    return entry.data;
++  }
+ 
+   if (!force && inflight.has(key)) return inflight.get(key);
+ 
+@@ -48,18 +63,19 @@ export async function cachedGet(url, { params, ttl = DEFAULT_TTL, force = false
+         data: res.data,
+         etag: res.headers.etag || entry?.etag,
+         expiresAt: Date.now() + ttl,
++        epoch: sessionEpoch,
+       };
+       cache.set(key, next);
+       return res.data;
+     })
+     .catch((err) => {
+-      // 304 -> serve from cache
+-      if (err.response?.status === 304 && entry) {
++      // 304 -> serve from cache (only if it belongs to the current session)
++      if (err.response?.status === 304 && entry && entry.epoch === sessionEpoch) {
+         entry.expiresAt = Date.now() + ttl;
+         return entry.data;
+       }
+       // Offline / network error -> serve stale cache if available
+-      if (!err.response && entry) return entry.data;
++      if (!err.response && entry && entry.epoch === sessionEpoch) return entry.data;
+       throw err;
+     })
+     .finally(() => inflight.delete(key));
+diff --git a/frontend/src/components/NotificationBell.jsx b/frontend/src/components/NotificationBell.jsx
+index c19cc80..4254c1e 100644
+--- a/frontend/src/components/NotificationBell.jsx
++++ b/frontend/src/components/NotificationBell.jsx
+@@ -16,6 +16,7 @@ import "./NotificationBell.css";
+ const TYPE_META = {
+   no_contact_reminder: { Icon: Clock, color: "warning", label: "یادآوری" },
+   daily_followup_digest: { Icon: Calendar, color: "primary", label: "خلاصه روزانه" },
++  follow_up_due: { Icon: Calendar, color: "warning", label: "سررسید پیگیری" },
+   lead_escalated: { Icon: ShieldAlert, color: "danger", label: "ارجاع اضطراری" },
+   lead_escalated_manager: { Icon: ShieldAlert, color: "danger", label: "ارجاع اضطراری" },
+   lead_assigned: { Icon: UserPlus, color: "success", label: "ارجاع پرونده" },
+diff --git a/frontend/src/context/AuthContext.jsx b/frontend/src/context/AuthContext.jsx
+index 8de0547..91feb6b 100644
+--- a/frontend/src/context/AuthContext.jsx
++++ b/frontend/src/context/AuthContext.jsx
+@@ -1,5 +1,5 @@
+ import { createContext, useContext, useEffect, useState } from "react";
+-import { login as apiLogin, getMe, clearRequestCache } from "../api/client";
++import { login as apiLogin, getMe, clearRequestCache, logoutSession } from "../api/client";
+ 
+ const AuthContext = createContext(null);
+ 
+@@ -35,6 +35,31 @@ export function AuthProvider({ children }) {
+     return () => window.removeEventListener("auth-unauthorized", onUnauthorized);
+   }, []);
+ 
++  // Cross-tab auth synchronization: the `storage` event fires in the OTHER
++  // tabs whenever localStorage changes. Logging out (or being force-logged-
++  // out) in one tab now logs every other tab out too, and logging in as a
++  // different account in one tab re-fetches /me everywhere else — no more
++  // tabs stuck rendering the previous account's identity/cached data.
++  useEffect(() => {
++    const onStorage = (event) => {
++      const authKeys = ["hadiflow_access_token", "hadiflow_refresh_token"];
++      // key === null means localStorage.clear() in another tab
++      if (event.key !== null && !authKeys.includes(event.key)) return;
++      const token = localStorage.getItem("hadiflow_access_token");
++      if (!token) {
++        clearRequestCache();
++        setUser(null);
++        setLoading(false);
++      } else {
++        getMe()
++          .then((me) => setUser(me))
++          .catch(() => setUser(null));
++      }
++    };
++    window.addEventListener("storage", onStorage);
++    return () => window.removeEventListener("storage", onStorage);
++  }, []);
++
+   async function login(mobile, password) {
+     setError(null);
+     const tokens = await apiLogin(mobile, password);
+@@ -45,7 +70,11 @@ export function AuthProvider({ children }) {
+     return me;
+   }
+ 
+-  function logout() {
++  async function logout() {
++    // Real (server-side) logout first: revokes the refresh session so the
++    // token can't be replayed later even if it was copied from this
++    // browser. Best-effort — local state is cleared regardless.
++    await logoutSession();
+     localStorage.removeItem("hadiflow_access_token");
+     localStorage.removeItem("hadiflow_refresh_token");
+     clearRequestCache();
+diff --git a/frontend/src/pages/NotificationCenter.jsx b/frontend/src/pages/NotificationCenter.jsx
+index e98b244..07af7ed 100644
+--- a/frontend/src/pages/NotificationCenter.jsx
++++ b/frontend/src/pages/NotificationCenter.jsx
+@@ -12,6 +12,7 @@ import "./NotificationCenter.css";
+ const TYPE_META = {
+   no_contact_reminder: { Icon: Clock, tone: "warning" },
+   daily_followup_digest: { Icon: Calendar, tone: "primary" },
++  follow_up_due: { Icon: Calendar, tone: "warning" },
+   lead_escalated: { Icon: ShieldAlert, tone: "danger" },
+   lead_escalated_manager: { Icon: ShieldAlert, tone: "danger" },
+   lead_assigned: { Icon: UserPlus, tone: "success" },
+diff --git a/frontend/vercel.json b/frontend/vercel.json
+index 29c0269..1323cda 100644
+--- a/frontend/vercel.json
++++ b/frontend/vercel.json
+@@ -5,4 +5,4 @@
+       "destination": "/index.html"
+     }
+   ]
+-}
+\ No newline at end of file
++}
+-- 
+2.39.5
+
