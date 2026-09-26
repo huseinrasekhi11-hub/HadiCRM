@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Phone, Lock, ArrowLeft, Loader2, ShieldCheck } from "lucide-react";
+import { Phone, Lock, ArrowLeft, Loader2 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import ThemeToggle from "../components/ThemeToggle";
 import "./Login.css";
@@ -47,12 +47,6 @@ export default function Login() {
             <img src="/logo.png" alt="HadiFlow" className="login-logo" />
           </div>
           <h2 className="login-tagline">سامانه یکپارچه مدیریت فروش و ارتباط با مشتریان</h2>
-          <div className="login-features">
-            <div className="login-feature-item">
-              <ShieldCheck size={17} style={{ color: "var(--color-success)" }} />
-              <span>دسترسی امن و رمزنگاری‌شده</span>
-            </div>
-          </div>
         </div>
       </div>
 
