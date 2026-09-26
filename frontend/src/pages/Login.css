@@ -178,8 +178,27 @@
   border-radius: var(--radius-lg);
   background: var(--bg-surface);
 }
-.login-form-panel .premium-input--with-icon { padding-inline-start: 46px; }
-.login-form-panel .input-icon { inset-inline-start: 15px; }
+
+/* Icon + text geometry must agree, or the typed value runs under the icon.
+   These fields are LTR islands inside an RTL document, so both the icon's
+   inset and the reserved padding resolve to the input's physical left edge:
+   reserve >= inset (15px) + icon width (18px). `left` is written explicitly
+   because index.css right-aligns every input[type=tel] by element selector,
+   which outranks a plain class rule. */
+.login-form-panel .input-wrapper > .input-icon {
+  inset-inline-start: 15px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.login-form-panel .input-wrapper > .premium-input--with-icon,
+.login-form-panel .input-wrapper > .premium-input--ltr.premium-input--with-icon {
+  padding-inline-start: 46px;
+}
+.login-form-panel .input-wrapper > .premium-input--ltr,
+.login-form-panel .input-wrapper > input[type="tel"].premium-input,
+.login-form-panel .input-wrapper > input[type="number"].premium-input {
+  text-align: left;
+}
 
 .login-form-panel .form-error-banner { text-align: center; margin-bottom: 0; }
 

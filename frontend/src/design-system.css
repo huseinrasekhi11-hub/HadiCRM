@@ -233,14 +233,26 @@ textarea.premium-input, textarea.input { min-height: 76px; resize: vertical; lin
 .input-wrapper:focus-within .input-icon { color: var(--color-primary); }
 .premium-input--with-icon { padding-inline-start: 42px; }
 
-/* Numeric / latin islands stay LTR inside the RTL document */
+/* Numeric / latin islands stay LTR inside the RTL document.
+   Text aligns to the start edge on purpose: a leading icon (see
+   .premium-input--with-icon) is pinned to the inline-start edge too, so
+   right-aligning an LTR input would feed the typed value straight into the
+   icon. Keep these two modifiers' geometry in sync. */
 .premium-input--ltr, .input--ltr {
   direction: ltr;
-  text-align: right;
+  text-align: start;
   unicode-bidi: isolate;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
 }
+
+/* An LTR island that carries a leading icon must keep its padding and the
+   icon's inset on the same (physical left) edge. Declared after both
+   .input-icon and --ltr above so it wins without !important. */
+.input-wrapper > .premium-input--ltr,
+.input-wrapper > .input--ltr { text-align: left; }
+.input-wrapper > .premium-input--ltr.premium-input--with-icon { padding-inline-start: 42px; }
+.input-wrapper > .input-icon { inset-inline-start: 13px; }
 
 /* Native date pickers render their indicator on the wrong edge in RTL */
 input[type="date"], input[type="datetime-local"], input[type="time"] {
