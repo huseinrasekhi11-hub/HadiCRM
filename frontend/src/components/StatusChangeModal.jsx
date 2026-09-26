@@ -3,6 +3,7 @@ import { Loader2, Target, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { statusLabel, LOSS_REASONS, WON_STATUS, LOST_STATUS } from "../leadStatus";
 import "./StatusChangeModal.css";
 import { useModalBehavior } from "../hooks/useModalBehavior";
+import { getErrorMessage } from "../utils/apiError";
 
 export default function StatusChangeModal({ targetStatus, onClose, onSubmit }) {
   const dialogRef = useModalBehavior(onClose);
@@ -38,7 +39,7 @@ export default function StatusChangeModal({ targetStatus, onClose, onSubmit }) {
       }
       await onSubmit(extra);
     } catch (err) {
-      setError(err?.response?.data?.detail || "تغییر وضعیت با خطا مواجه شد.");
+      setError(getErrorMessage(err, "تغییر وضعیت با خطا مواجه شد."));
       setSubmitting(false);
     }
   }

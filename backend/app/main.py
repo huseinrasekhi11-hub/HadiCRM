@@ -77,6 +77,21 @@ app.add_middleware(ETagMiddleware)
 
 
 # ===========================================================
+# هدرهای امنیتی پایه برای همه‌ی پاسخ‌ها
+# پیش از این هیچ‌کدام تنظیم نمی‌شد؛ به‌ویژه دانلود پیوست‌ها بدون
+# nosniff بود و مرورگر می‌توانست محتوای یک فایل «.txt» را HTML تفسیر کند.
+# ===========================================================
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
+# ===========================================================
 # هندلرهای خطای سراسری دیتابیس
 # پیش از این، داده‌ی نامعتبر کلاینت (مثلاً رشته‌ی بلندتر از ستون)
 # به خطای ۵۰۰ با stack trace کامل در لاگ تبدیل می‌شد. حالا:

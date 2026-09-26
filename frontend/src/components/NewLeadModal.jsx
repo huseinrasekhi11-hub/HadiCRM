@@ -4,6 +4,7 @@ import { createLead } from "../api/client";
 import { useToast } from "./Toast";
 import "./NewLeadModal.css";
 import { useModalBehavior } from "../hooks/useModalBehavior";
+import { getErrorMessage } from "../utils/apiError";
 
 // Shared by the Leads page (desktop) and the mobile quick-action FAB.
 // Backend Feature 1: if the mobile already exists AND belongs to the
@@ -62,8 +63,7 @@ export default function NewLeadModal({ onClose, onCreated }) {
       }
       onCreated(lead);
     } catch (err) {
-      const detail = err?.response?.data?.detail;
-      setError(typeof detail === "string" ? detail : "ثبت لید با خطا مواجه شد. اطلاعات را بررسی کنید.");
+      setError(getErrorMessage(err, "ثبت لید با خطا مواجه شد. اطلاعات را بررسی کنید."));
       setSubmitting(false);
     }
   }

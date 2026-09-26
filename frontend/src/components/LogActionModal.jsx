@@ -4,6 +4,7 @@ import { ACTION_TYPES, FOLLOWUP_QUICK_OPTIONS, quickFollowUpToDate } from "../le
 import "./LogActionModal.css";
 import { useModalBehavior } from "../hooks/useModalBehavior";
 import JalaliDatePicker from "./JalaliDatePicker";
+import { getErrorMessage } from "../utils/apiError";
 
 function toLocalInputValue(date) {
   if (!date) return "";
@@ -76,7 +77,7 @@ export default function LogActionModal({ initialData, onClose, onSubmit }) {
         no_followup_reason: nextFollowUp ? null : noFollowUpReason.trim(),
       });
     } catch (err) {
-      setError(err?.response?.data?.detail || "ثبت اقدام با خطا مواجه شد.");
+      setError(getErrorMessage(err, "ثبت اقدام با خطا مواجه شد."));
       setSubmitting(false);
     }
   }

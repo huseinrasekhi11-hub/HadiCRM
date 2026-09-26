@@ -13,6 +13,7 @@ from datetime import timezone
 
 import pytz
 from sqlalchemy import JSON
+from sqlalchemy import BigInteger
 from sqlalchemy import Boolean
 from sqlalchemy import Column
 from sqlalchemy import DateTime
@@ -81,6 +82,7 @@ class Lead(Base):
         String(50),
         nullable=False,
         default="new",
+        index=True,
     )
 
     created_by_id: Mapped[int] = mapped_column(
@@ -91,6 +93,7 @@ class Lead(Base):
     owner_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"),
         nullable=False,
+        index=True,
     )
 
     last_contact_at: Mapped[datetime | None] = mapped_column(
@@ -107,6 +110,7 @@ class Lead(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
+        index=True,
     )
 
     updated_at: Mapped[datetime] = mapped_column(
@@ -155,7 +159,7 @@ class Lead(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
     )
-    sale_amount = Column(Integer, nullable=True)
+    sale_amount = Column(BigInteger, nullable=True)
     sold_products = Column(String(500), nullable=True)
     invoice_number = Column(String(50), nullable=True)
     resolution_notes = Column(String(500), nullable=True)

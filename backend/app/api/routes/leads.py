@@ -39,7 +39,7 @@ from app.crud.user import get_user
 from app.database.database import get_db
 from app.models.user import User
 from app.permissions.permission import can_assign_any_lead, can_view_all_leads
-from app.schemas.activity import ActivityCreate, ActivityResponse
+from app.schemas.activity import ACTION_TYPES_REQUIRING_FOLLOWUP, ActivityCreate, ActivityResponse
 from app.schemas.assignment_history import AssignmentHistoryResponse
 from app.schemas.attachment import AttachmentResponse
 from app.schemas.lead import (
@@ -339,6 +339,19 @@ def create_lead_activity(
     lead = get_my_lead_by_id(db, lead_id, current_user)
     if not lead:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found.")
+    # SECURITY/AUDIT: system event types (status_change, lead_deleted,
+    # escalated, lead_restored, duplicate_detected, ...) are written only
+    # by the server as side effects of real operations. Accepting them
+    # here let any user forge audit-trail events (e.g. a fake "deleted"
+    # or "escalated" entry) in a lead's timeline.
+    if activity_data.activity_type not in ACTION_TYPES_REQUIRING_FOLLOWUP:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "این نوع فعالیت فقط توسط سیستم ثبت می‌شود. انواع مجاز: "
+                f"{', '.join(sorted(ACTION_TYPES_REQUIRING_FOLLOWUP))}"
+            ),
+        )
     return create_activity(db, lead, current_user, activity_data)
 
 
@@ -364,6 +377,21 @@ def create_lead_task(
     lead = get_my_lead_by_id(db, lead_id, current_user)
     if not lead:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found.")
+    if task_data.assigned_to_id is not None and task_data.assigned_to_id != current_user.id:
+        # پیش از این هیچ بررسی‌ای نبود: شناسه‌ی ناموجود به خطای کلید خارجی
+        # (۴۰۹ با پیام گمراه‌کننده) می‌خورد، و ارجاع به کاربری که پرونده را
+        # نمی‌بیند وظیفه‌ای «یتیم» می‌ساخت که در «وظایف من» هیچ‌کس ظاهر نمی‌شد.
+        assignee = get_user(db, task_data.assigned_to_id)
+        if not assignee or not assignee.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="کاربر مقصد وظیفه وجود ندارد یا غیرفعال است.",
+            )
+        if assignee.id != lead.owner_id and not can_view_all_leads(assignee):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="وظیفه فقط به مالک پرونده یا نقش‌های نظارتی قابل ارجاع است.",
+            )
     task = create_task(db, lead, current_user, task_data)
     create_audit_log(
         db,

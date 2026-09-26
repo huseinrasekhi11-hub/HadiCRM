@@ -35,6 +35,7 @@ from app.crud.lead_escalation import create_escalation
 from app.crud.activity import create_activity
 from app.schemas.activity import ActivityCreate
 from app.schemas.lead import CLOSED_STATUSES
+from app.core.logger import app_logger
 
 
 NO_CONTACT_WINDOW_MINUTES = 60
@@ -88,7 +89,7 @@ def send_daily_morning_reminders():
     شدن وضعیت‌های جدید هماهنگ نمی‌ماند. اصلاح شد به «هر وضعیتی جز برد/باخت»
     که دقیقاً همان تعریف «پرونده‌ی باز» در سند کسب‌وکار است.
     """
-    print("⏳ [Scheduler] Rule 2: Daily morning digest triggered.")
+    app_logger.info("[Scheduler] Rule 2: Daily morning digest triggered.")
     db = SessionLocal()
     try:
         open_leads = db.query(Lead).filter(
@@ -124,13 +125,47 @@ def send_daily_morning_reminders():
         db.close()
 
 
+def _process_no_contact_candidate(db, lead) -> None:
+    """پردازش یک پرونده در قانون ۱ (در تراکنش مستقل)."""
+    # اگر از زمان ارجاع تماسی ثبت نشده (last_contact_at خالی است یا قدیمی‌تر از ارجاع)
+    has_contact_since_assignment = (
+        lead.last_contact_at is not None
+        and _aware(lead.last_contact_at) >= _aware(lead.last_assigned_at)
+    )
+    if has_contact_since_assignment:
+        # کارشناس به‌موقع تماس گرفته — دیگر نیازی به یادآوری نیست.
+        # این پرچم را هم اینجا True می‌کنیم، وگرنه این پرونده
+        # (چون last_assigned_at <= cutoff هنوز صادق است) در هر
+        # اجرای بعدی این job دوباره candidate می‌شود.
+        lead.sla_notified = True
+        db.commit()
+        return
+
+    owner = db.query(User).filter(User.id == lead.owner_id).first()
+    if not owner:
+        return
+
+    create_notification(
+        db,
+        user_id=owner.id,
+        notification_type="no_contact_reminder",
+        title="یادآوری: پیگیری نشده",
+        message=f"۶۰ دقیقه از ارجاع پرونده‌ی «{lead.customer_name}» گذشته و هنوز اقدامی ثبت نشده.",
+        lead_id=lead.id,
+        commit=False,
+    )
+    lead.sla_notified = True
+    db.commit()
+    app_logger.info(f"[Scheduler] Rule 1: reminder sent for lead {lead.id}.")
+
+
 def check_no_contact_reminders():
     """
     قانون ۱: اگر ۶۰ دقیقه از آخرین ارجاع یک پرونده گذشته و هیچ تماس/فعالیتی
     روی آن ثبت نشده باشد، به کارشناسِ مسئول یادآوری می‌شود (یک‌بار، تا
     ارجاع بعدی این پرچم دوباره صفر شود).
     """
-    print("⏳ [Scheduler] Rule 1: No-contact 60-minute check triggered.")
+    app_logger.info("[Scheduler] Rule 1: No-contact 60-minute check triggered.")
     db = SessionLocal()
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=NO_CONTACT_WINDOW_MINUTES)
@@ -144,41 +179,102 @@ def check_no_contact_reminders():
         ).all()
 
         for lead in candidates:
-            # اگر از زمان ارجاع تماسی ثبت نشده (last_contact_at خالی است یا قدیمی‌تر از ارجاع)
-            has_contact_since_assignment = (
-                lead.last_contact_at is not None
-                and _aware(lead.last_contact_at) >= _aware(lead.last_assigned_at)
-            )
-            if has_contact_since_assignment:
-                # کارشناس به‌موقع تماس گرفته — دیگر نیازی به یادآوری نیست.
-                # این پرچم را هم اینجا True می‌کنیم، وگرنه این پرونده
-                # (چون last_assigned_at <= cutoff هنوز صادق است) در هر
-                # اجرای بعدی این job دوباره candidate می‌شود و برای
-                # همیشه بی‌جهت بررسی می‌شود، حتی با اینکه هرگز یادآوری
-                # دومی ارسال نخواهد شد (به‌خاطر همین continue).
-                lead.sla_notified = True
-                db.commit()
-                continue
-
-            owner = db.query(User).filter(User.id == lead.owner_id).first()
-            if not owner:
-                continue
-
-            create_notification(
-                db,
-                user_id=owner.id,
-                notification_type="no_contact_reminder",
-                title="یادآوری: پیگیری نشده",
-                message=f"۶۰ دقیقه از ارجاع پرونده‌ی «{lead.customer_name}» گذشته و هنوز اقدامی ثبت نشده.",
-                lead_id=lead.id,
-                commit=True,
-            )
-
-            lead.sla_notified = True
-            db.commit()
-            print(f"✅ [Scheduler] Rule 1: reminder sent for lead {lead.id}.")
+            # خطای یک پرونده نباید پردازش بقیه را متوقف کند؛ پیش از این یک
+            # استثنا کل job را ساکت از کار می‌انداخت و هیچ لاگی نمی‌ماند.
+            try:
+                _process_no_contact_candidate(db, lead)
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()
+                app_logger.exception(f"[Scheduler] Rule 1 failed for lead {lead.id}: {exc}")
     finally:
         db.close()
+
+
+def _escalate_one_lead(db, lead, manager, cutoff) -> None:
+    """ارجاع اضطراری یک پرونده به مدیر (در تراکنش مستقل)."""
+    # «آخرین فعالیت» باید جدیدترینِ سه سیگنال باشد: آخرین تماس،
+    # زمان ساخت، و آخرین ارجاع. قبلاً last_assigned_at اینجا در
+    # نظر گرفته نمی‌شد؛ یعنی یک پرونده‌ی قدیمیِ بدون تماس که
+    # همین چند دقیقه پیش به کارشناس جدیدی ارجاع شده بود، در
+    # همان اجرای بعدیِ این job (چون created_at هنوز قدیمی بود)
+    # بلافاصله از دست کارشناس گرفته و به مدیر ارجاع می‌شد — بدون
+    # اینکه کارشناس حتی فرصت رسیدگی داشته باشد.
+    last_activity = max(
+        _aware(lead.last_contact_at or lead.created_at),
+        _aware(lead.last_assigned_at) or _aware(lead.created_at),
+    )
+
+    if last_activity > cutoff:
+        return  # هنوز به ۳ روز رکود نرسیده
+
+    if lead.owner_id == manager.id:
+        return  # از قبل دست مدیر است؛ نیازی به ارجاع مجدد نیست
+
+    old_owner = db.query(User).filter(User.id == lead.owner_id).first()
+    old_owner_id = lead.owner_id
+
+    # ارجاع خودکار
+    lead.owner_id = manager.id
+    lead.last_assigned_at = datetime.now(timezone.utc)
+    lead.sla_notified = False
+    lead.is_escalated = True
+
+    create_activity(
+        db,
+        lead,
+        manager,  # عامل رویداد: خود سیستم به نمایندگی از مدیر ثبت می‌شود
+        ActivityCreate(
+            activity_type="escalated",
+            title="ارجاع خودکار به مدیر",
+            description="۳ روز از آخرین فعالیت گذشت و پرونده به مدیر ارجاع داده شد.",
+        ),
+        commit=False,
+    )
+
+    log_assignment(
+        db,
+        lead,
+        assigned_by=old_owner or manager,
+        assigned_to=manager,
+        note="ارجاع خودکار به دلیل عدم فعالیت به مدت ۳ روز",
+        commit=False,
+    )
+
+    create_escalation(
+        db,
+        lead,
+        escalated_from_id=old_owner_id,
+        escalated_to_id=manager.id,
+        reason="no_activity_3_days",
+        commit=False,
+    )
+
+    db.commit()
+    db.refresh(lead)
+
+    create_notification(
+        db,
+        user_id=manager.id,
+        notification_type="lead_escalated_manager",
+        title="پرونده‌ای به شما ارجاع اضطراری شد",
+        message=f"پرونده‌ی «{lead.customer_name}» به دلیل عدم فعالیت به شما ارجاع داده شد.",
+        lead_id=lead.id,
+        commit=False,
+    )
+
+    if old_owner:
+        create_notification(
+            db,
+            user_id=old_owner.id,
+            notification_type="lead_escalated",
+            title="پرونده از شما گرفته شد",
+            message=f"پرونده‌ی «{lead.customer_name}» به دلیل عدم فعالیت به مدیر ارجاع داده شد.",
+            lead_id=lead.id,
+            commit=False,
+        )
+
+    app_logger.info(f"[Scheduler] Rule 3: lead {lead.id} escalated to manager {manager.id}.")
+    db.commit()
 
 
 def escalate_stale_leads():
@@ -187,14 +283,12 @@ def escalate_stale_leads():
     به‌صورت خودکار به مدیر (CEO) ارجاع داده می‌شود و این اتفاق در
     تایم‌لاین، تاریخچه‌ی ارجاع، و جدول escalations ثبت می‌شود.
     """
-    print("⏳ [Scheduler] Rule 3: 3-day escalation check triggered.")
+    app_logger.info("[Scheduler] Rule 3: 3-day escalation check triggered.")
     db = SessionLocal()
     try:
         manager = _get_designated_manager(db)
         if not manager:
-            print(
-                "❌ [Scheduler] Rule 3: no active ceo/admin found; cannot escalate."
-            )
+            app_logger.warning("[Scheduler] Rule 3: no active ceo/admin found; cannot escalate.")
             return
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=ESCALATION_THRESHOLD_DAYS)
@@ -209,88 +303,11 @@ def escalate_stale_leads():
         ).all()
 
         for lead in candidates:
-            # «آخرین فعالیت» باید جدیدترینِ سه سیگنال باشد: آخرین تماس،
-            # زمان ساخت، و آخرین ارجاع. قبلاً last_assigned_at اینجا در
-            # نظر گرفته نمی‌شد؛ یعنی یک پرونده‌ی قدیمیِ بدون تماس که
-            # همین چند دقیقه پیش به کارشناس جدیدی ارجاع شده بود، در
-            # همان اجرای بعدیِ این job (چون created_at هنوز قدیمی بود)
-            # بلافاصله از دست کارشناس گرفته و به مدیر ارجاع می‌شد — بدون
-            # اینکه کارشناس حتی فرصت رسیدگی داشته باشد.
-            last_activity = max(
-                _aware(lead.last_contact_at or lead.created_at),
-                _aware(lead.last_assigned_at) or _aware(lead.created_at),
-            )
-
-            if last_activity > cutoff:
-                continue  # هنوز به ۳ روز رکود نرسیده
-
-            if lead.owner_id == manager.id:
-                continue  # از قبل دست مدیر است؛ نیازی به ارجاع مجدد نیست
-
-            old_owner = db.query(User).filter(User.id == lead.owner_id).first()
-            old_owner_id = lead.owner_id
-
-            # ارجاع خودکار
-            lead.owner_id = manager.id
-            lead.last_assigned_at = datetime.now(timezone.utc)
-            lead.sla_notified = False
-            lead.is_escalated = True
-
-            create_activity(
-                db,
-                lead,
-                manager,  # عامل رویداد: خود سیستم به نمایندگی از مدیر ثبت می‌شود
-                ActivityCreate(
-                    activity_type="escalated",
-                    title="ارجاع خودکار به مدیر",
-                    description="۳ روز از آخرین فعالیت گذشت و پرونده به مدیر ارجاع داده شد.",
-                ),
-                commit=False,
-            )
-
-            log_assignment(
-                db,
-                lead,
-                assigned_by=old_owner or manager,
-                assigned_to=manager,
-                note="ارجاع خودکار به دلیل عدم فعالیت به مدت ۳ روز",
-                commit=False,
-            )
-
-            create_escalation(
-                db,
-                lead,
-                escalated_from_id=old_owner_id,
-                escalated_to_id=manager.id,
-                reason="no_activity_3_days",
-                commit=False,
-            )
-
-            db.commit()
-            db.refresh(lead)
-
-            create_notification(
-                db,
-                user_id=manager.id,
-                notification_type="lead_escalated_manager",
-                title="پرونده‌ای به شما ارجاع اضطراری شد",
-                message=f"پرونده‌ی «{lead.customer_name}» به دلیل عدم فعالیت به شما ارجاع داده شد.",
-                lead_id=lead.id,
-                commit=True,
-            )
-
-            if old_owner:
-                create_notification(
-                    db,
-                    user_id=old_owner.id,
-                    notification_type="lead_escalated",
-                    title="پرونده از شما گرفته شد",
-                    message=f"پرونده‌ی «{lead.customer_name}» به دلیل عدم فعالیت به مدیر ارجاع داده شد.",
-                    lead_id=lead.id,
-                    commit=True,
-                )
-
-            print(f"✅ [Scheduler] Rule 3: lead {lead.id} escalated to manager {manager.id}.")
+            try:
+                _escalate_one_lead(db, lead, manager, cutoff)
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()
+                app_logger.exception(f"[Scheduler] Rule 3 failed for lead {lead.id}: {exc}")
     finally:
         db.close()
 

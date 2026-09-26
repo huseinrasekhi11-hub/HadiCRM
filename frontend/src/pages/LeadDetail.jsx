@@ -28,6 +28,7 @@ import { statusLabel, statusColor, taskStatusLabel, WON_STATUS, LOST_STATUS } fr
 import "./LeadDetail.css";
 import { useModalBehavior } from "../hooks/useModalBehavior";
 import JalaliDatePicker from "../components/JalaliDatePicker";
+import { getErrorMessage } from "../utils/apiError";
 
 const fmtDate = (iso) => (iso ? new Intl.DateTimeFormat("fa-IR-u-ca-persian", { dateStyle: "medium" }).format(new Date(iso)) : "—");
 const fmtDateTime = (iso) => (iso ? new Intl.DateTimeFormat("fa-IR-u-ca-persian", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso)) : "—");
@@ -51,7 +52,7 @@ function EditLeadModal({ lead, onClose, onSubmit }) {
     setSubmitting(true);
     setError("");
     try { await onSubmit(formData); }
-    catch (err) { setError(err?.response?.data?.detail || "بروزرسانی با خطا مواجه شد."); setSubmitting(false); }
+    catch (err) { setError(getErrorMessage(err, "بروزرسانی با خطا مواجه شد.")); setSubmitting(false); }
   }
   return (
     <div className="modal-backdrop" onClick={onClose}>

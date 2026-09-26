@@ -1,5 +1,6 @@
+import hashlib
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import case, func, or_
+from sqlalchemy import case, func, or_, text
 from sqlalchemy.orm import Session
 from app.core.jalali import jalali_today_bounds_utc, naive_tehran_now
 from app.core.text_normalization import normalize_mobile, normalize_persian_text
@@ -147,6 +148,30 @@ def register_duplicate_submission(
     return lead
 
 
+def _lock_mobile_for_create(db: Session, mobile_normalized: str | None) -> None:
+    """
+    قفل مشورتی (advisory) در سطح تراکنش روی شماره‌ی نرمال‌شده.
+
+    بدون این قفل، دو درخواست هم‌زمانِ «ثبت لید» با یک شماره هر دو
+    find_duplicate_lead را خالی می‌دیدند و دو پرونده‌ی مستقل می‌ساختند
+    (در آزمایش با ۸ درخواست هم‌زمان، ۳ پرونده‌ی جداگانه ساخته شد) —
+    یعنی قرارداد «یک پرونده‌ی فعال به ازای هر شماره» نقض می‌شد و
+    ثبت‌های بعدی به پرونده‌ی اشتباه می‌چسبیدند.
+
+    قفل تا پایان تراکنش (commit/rollback) نگه داشته می‌شود؛ بنابراین
+    درخواست‌های هم‌زمان با همان شماره پشت سر هم اجرا می‌شوند و دومی
+    پرونده‌ی اولی را می‌بیند و به آن متصل می‌شود. فقط PostgreSQL از
+    این قابلیت پشتیبانی می‌کند؛ روی سایر دیتابیس‌ها بی‌اثر است.
+    """
+    if not mobile_normalized:
+        return
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    digest = hashlib.sha256(mobile_normalized.encode("utf-8")).digest()
+    key = int.from_bytes(digest[:8], "big", signed=True)
+    db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+
+
 def create_lead(
     db: Session,
     lead_data: LeadCreate,
@@ -154,6 +179,7 @@ def create_lead(
 ):
     mobile_normalized = normalize_mobile(lead_data.mobile)
     customer_name_normalized = normalize_persian_text(lead_data.customer_name)
+    _lock_mobile_for_create(db, mobile_normalized)
     existing_lead = find_duplicate_lead(
         db,
         mobile_normalized=mobile_normalized,

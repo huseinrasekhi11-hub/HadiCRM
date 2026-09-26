@@ -22,6 +22,16 @@ class ETagMiddleware(BaseHTTPMiddleware):
         if request.method != "GET" or response.status_code != 200:
             return response
 
+        # Decide BEFORE buffering. Previously every 200 GET — including a
+        # 20 MB attachment download — was read fully into memory just to
+        # discover it exceeded MAX_BODY. Only small JSON payloads are hashed.
+        content_type = response.headers.get("content-type", "")
+        if not content_type.startswith("application/json"):
+            return response
+        content_length = response.headers.get("content-length")
+        if content_length and content_length.isdigit() and int(content_length) > self.MAX_BODY:
+            return response
+
         body_chunks = []
         async for chunk in response.body_iterator:
             body_chunks.append(chunk if isinstance(chunk, bytes) else chunk.encode("utf-8"))
