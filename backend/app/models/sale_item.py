@@ -15,7 +15,7 @@ from datetime import datetime
 
 from sqlalchemy import DateTime
 from sqlalchemy import ForeignKey
-from sqlalchemy import Integer
+from sqlalchemy import BigInteger
 from sqlalchemy import UniqueConstraint
 from sqlalchemy import func
 from sqlalchemy.orm import Mapped
@@ -50,7 +50,7 @@ class SaleItem(Base):
 
     # مبلغ فروش این قلم به ریال
     amount: Mapped[int] = mapped_column(
-        Integer,
+        BigInteger,
         nullable=False,
         default=0,
     )

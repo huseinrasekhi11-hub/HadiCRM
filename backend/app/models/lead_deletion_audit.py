@@ -27,6 +27,7 @@ from datetime import timezone
 
 from sqlalchemy import JSON
 from sqlalchemy import DateTime
+from sqlalchemy import BigInteger
 from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped
@@ -88,7 +89,7 @@ class LeadDeletionAudit(Base):
     # اسنپ‌شات مالی پرونده در لحظه‌ی حذف
     # --------------------------------------------------------
     sale_amount: Mapped[int | None] = mapped_column(
-        Integer,
+        BigInteger,
         nullable=True,
     )
 

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Loader2, PackagePlus } from "lucide-react";
 import "./AddSaleItemModal.css";
 import { useModalBehavior } from "../hooks/useModalBehavior";
+import { getErrorMessage } from "../utils/apiError";
 
 // Structured per-product Rial capture (backend Feature 5). Replaces the
 // legacy free-text sold_products for reliable per-product reporting.
@@ -24,7 +25,7 @@ export default function AddSaleItemModal({ products, onClose, onSubmit }) {
     try {
       await onSubmit({ product_id: Number(productId), amount: amountNum });
     } catch (err) {
-      setError(err?.response?.data?.detail || "ثبت قلم فروش با خطا مواجه شد.");
+      setError(getErrorMessage(err, "ثبت قلم فروش با خطا مواجه شد."));
       setSubmitting(false);
     }
   }

@@ -11,7 +11,7 @@ from pydantic import model_validator
 import re
 
 from app.core.text_normalization import normalize_mobile
-from app.schemas.sale_item import SaleItemInput
+from app.schemas.sale_item import MAX_RIAL_AMOUNT, SaleItemInput
 
 # Iranian mobile canonical form after normalization: 09xxxxxxxxx
 _MOBILE_CANONICAL_RE = re.compile(r"^09\d{9}$")
@@ -145,6 +145,15 @@ class LeadUpdate(BaseModel):
     source: str | None = Field(default=None, max_length=50)
     need: str | None = Field(default=None, max_length=500)
 
+    @field_validator("mobile")
+    @classmethod
+    def check_mobile(cls, v: str | None) -> str | None:
+        # هم‌ارز با LeadCreate: پیش از این PATCH هر رشته‌ی عددی (مثلاً «12345»)
+        # را می‌پذیرفت و کلید کشف تکراری را خراب می‌کرد.
+        if v is None:
+            return None
+        return _validate_mobile(v)
+
     @model_validator(mode="after")
     def validate_update_payload(self):
         values = (self.customer_name, self.mobile, self.source, self.need)
@@ -152,6 +161,8 @@ class LeadUpdate(BaseModel):
             raise ValueError("حداقل یک فیلد برای ویرایش الزامی است.")
         if self.customer_name is not None and not self.customer_name.strip():
             raise ValueError("نام مشتری نمی‌تواند خالی باشد.")
+        if self.source is not None and not self.source.strip():
+            raise ValueError("منبع پرونده نمی‌تواند خالی باشد.")
         return self
 
 
@@ -176,7 +187,8 @@ class LeadStatusUpdate(BaseModel):
     # الزامی هنگام وضعیت عدم فروش
     loss_reason: str | None = Field(default=None, max_length=50)
     # اختیاری، فقط برای فروش موفق (طبق سند: «اجازه‌ی ثبت» نه الزام)
-    sale_amount: int | None = Field(default=None, ge=0)
+    # سقف ۱۰^۱۵ ریال: بسیار بالاتر از هر فروش واقعی، ولی امن داخل BIGINT
+    sale_amount: int | None = Field(default=None, ge=0, le=MAX_RIAL_AMOUNT)
     sold_products: str | None = Field(default=None, max_length=500)
     invoice_number: str | None = Field(default=None, max_length=50)
     resolution_notes: str | None = Field(default=None, max_length=500)

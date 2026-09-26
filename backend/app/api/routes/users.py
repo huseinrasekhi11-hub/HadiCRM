@@ -15,7 +15,6 @@ from app.crud.user import (
     get_user_by_mobile,
     get_assignable_users,
 )
-from app.crud.lead import get_team_member_stats
 from app.models.lead_deletion_audit import LeadDeletionAudit
 from app.schemas.user import (
     UserCreate,
@@ -199,6 +198,32 @@ def edit_user(
             raise HTTPException(
                 status_code=400,
                 detail="Mobile already exists",
+            )
+
+    # همان محافظت‌های DELETE، این‌جا هم لازم است: پیش از این ادمین می‌توانست
+    # با PUT خودش را غیرفعال کند یا نقش آخرین ادمین/مدیرعامل را عوض کند و
+    # کل پنل مدیریتی بدون هیچ راه بازگشتی قفل می‌شد.
+    deactivating = user.is_active is False
+    demoting = user.role is not None and user.role not in (Roles.ADMIN, Roles.CEO)
+    if db_user.id == current_user.id and (deactivating or demoting):
+        raise HTTPException(
+            status_code=400,
+            detail="You cannot deactivate or demote your own account.",
+        )
+    if db_user.role in (Roles.ADMIN, Roles.CEO) and db_user.is_active and (deactivating or demoting):
+        remaining = (
+            db.query(User)
+            .filter(
+                User.role.in_([Roles.ADMIN, Roles.CEO]),
+                User.is_active.is_(True),
+                User.id != db_user.id,
+            )
+            .count()
+        )
+        if remaining == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot deactivate or demote the last active admin/CEO account.",
             )
 
     return update_user(db, db_user, user)

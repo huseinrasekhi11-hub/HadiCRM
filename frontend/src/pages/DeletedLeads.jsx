@@ -19,6 +19,7 @@ import { statusLabel } from "../leadStatus";
 import { formatDateTime } from "../utils/persian";
 import "./DeletedLeads.css";
 import JalaliDatePicker from "../components/JalaliDatePicker";
+import { getErrorMessage } from "../utils/apiError";
 
 const PAGE_SIZE = 30;
 
@@ -101,7 +102,7 @@ export default function DeletedLeads() {
         );
       })
       .catch((err) => {
-        const msg = err?.response?.data?.detail || "احیای پرونده با خطا مواجه شد.";
+        const msg = getErrorMessage(err, "احیای پرونده با خطا مواجه شد.");
         notify(msg, "error");
       })
       .finally(() => setRestoringId(null));

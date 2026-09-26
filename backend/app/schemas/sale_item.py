@@ -8,11 +8,16 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+# بیشینه‌ی مبلغ ریالی قابل ثبت. ستون‌های دیتابیس BIGINT هستند؛ این سقف
+# (۱۰^۱۵ ریال) بسیار بالاتر از هر فروش واقعی است اما ورودی خارج از بازه را
+# با ۴۲۲ تمیز رد می‌کند، نه با DataError دیتابیس.
+MAX_RIAL_AMOUNT = 10**15
+
 
 class SaleItemInput(BaseModel):
     """یک قلم فروش؛ برای ثبت همراه با تغییر وضعیت یا الحاق بعدی."""
     product_id: int
-    amount: int = Field(ge=0, description="مبلغ به ریال")
+    amount: int = Field(ge=0, le=MAX_RIAL_AMOUNT, description="مبلغ به ریال")
 
 
 class SaleItemCreate(SaleItemInput):

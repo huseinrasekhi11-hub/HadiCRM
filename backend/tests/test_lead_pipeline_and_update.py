@@ -145,7 +145,10 @@ def test_update_lead_invalid_mobile_rejected():
     headers = get_admin_headers()
     lead = create_lead(headers)
     response = client.patch(f"/leads/{lead['id']}", json={"mobile": "abc"}, headers=headers)
-    assert response.status_code == 400
+    # Mobile format is now validated at the schema boundary (same rule and
+    # status as POST /leads/), so this is a 422 rather than the old 400
+    # raised from the CRUD layer.
+    assert response.status_code == 422
 
 
 def test_update_lead_empty_payload_rejected():

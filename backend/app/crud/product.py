@@ -1,4 +1,5 @@
 """CRUD کاتالوگ محصولات"""
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.product import Product
@@ -22,9 +23,11 @@ def get_product(db: Session, product_id: int):
 
 
 def get_product_by_name(db: Session, name: str):
+    # مقایسه‌ی بدون حساسیت به بزرگی/کوچکی حروف تا «Alpha» و «alpha» دو
+    # کالای جداگانه در کاتالوگ نسازند.
     return (
         db.query(Product)
-        .filter(Product.name == name)
+        .filter(func.lower(Product.name) == name.strip().lower())
         .first()
     )
 
