@@ -216,3 +216,19 @@ merge شدند تا فیکس‌های قبلی (BIGINT، ایندکس‌ها، a
 وضعیت: **۱۹۸ تست سبز** روی PostgreSQL 15 واقعی (fresh `alembic upgrade head`،
 ۱۸ مهاجرت، single head)؛ فرانت‌اند `npm ci && npm run build && npm run lint`
 با ۰ خطا.
+
+## استقرار Render — ۲۰۶-۰۹-۲۶ (رفع شکست deploy)
+
+فرمان استارت قدیمی Render از `create_tables` استفاده می‌کرد که
+`Base.metadata.create_all` است: فقط «جدولِ نبود» را می‌سازد و **ستونِ
+جدید به جدولِ موجود اضافه نمی‌کند**. بعد از این دورِ تغییرات، دیتابیسِ
+مستقر فاقد `users.mobile_normalized` و `leads.follow_up_notified` بود و
+`seed_admin` با `column users.mobile_normalized does not exist` و exit 1
+کل استقرار را می‌خواباند (بازتولید و راستی‌آزمایی‌شده روی DB واقعی).
+
+`backend/render_start.sh` جایگزین شد: اگر `alembic_version` وجود
+نداشت، اسکیمای legacy را روی `b7c8d9e0f1a2` stamp می‌کند، سپس
+`alembic upgrade head` (فقط سه مهاجرتِ جدیدِ guard‌دار اجرا می‌شوند)،
+seed ادمین، reseed دمو (قابل خاموش‌کردن با `RESEED_DEMO_DATA=false`)
+و در نهایت uvicorn. در Render کافی است Start Command بشود:
+`bash render_start.sh`
