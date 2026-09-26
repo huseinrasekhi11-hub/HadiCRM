@@ -22,6 +22,7 @@ from app.crud.lead_deletion_audit import (
     get_deletion_audits,
     restore_deleted_lead,
 )
+from app.models.lead_deletion_audit import LeadDeletionAudit
 from app.database.database import get_db
 from app.models.user import User
 from app.permissions.permission import require_roles

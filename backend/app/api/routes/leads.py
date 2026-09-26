@@ -137,6 +137,10 @@ def search_all_leads(
         None,
         description="today_followup | overdue | no_activity | critical | new | open | escalated",
     ),
+    owner_id: int | None = Query(
+        None,
+        description="فیلتر مالکیت پرونده‌ها (بخش «تیم فروش» پنل ادمین). فقط برای نقش‌های مدیریتی اعمال می‌شود.",
+    ),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     with_total: bool = Query(
@@ -154,6 +158,7 @@ def search_all_leads(
         smart_filter=smart_filter,
         skip=skip,
         limit=limit,
+        owner_id=owner_id,
     )
     if with_total:
         total = count_leads(
@@ -162,6 +167,7 @@ def search_all_leads(
             search=search,
             status=status_filter,
             smart_filter=smart_filter,
+            owner_id=owner_id,
         )
         response.headers["X-Total-Count"] = str(total)
     return leads

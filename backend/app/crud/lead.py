@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 from app.core.jalali import jalali_today_bounds_utc, naive_tehran_now
 from app.core.text_normalization import normalize_mobile, normalize_persian_text
@@ -8,6 +8,8 @@ from app.crud.assignment_history import log_assignment
 from app.crud.lead_deletion_audit import record_lead_deletion
 from app.crud.notification import create_notification
 from app.models.lead import Lead
+from app.models.lead_deletion_audit import LeadDeletionAudit
+from app.models.task import Task
 from app.models.lead_submission import (
     MATCHED_BY_MOBILE,
     MATCHED_BY_MOBILE_AND_NAME,
@@ -214,10 +216,16 @@ def _apply_lead_filters(
     search: str | None = None,
     status: str | None = None,
     smart_filter: str | None = None,
+    owner_id: int | None = None,
 ):
     # دامنه‌ی مالکیت فقط از سیاست متمرکز اعمال می‌شود
     if not can_view_all_leads(current_user):
         query = query.filter(Lead.owner_id == current_user.id)
+    elif owner_id is not None:
+        # مدیر می‌تواند دامنه را به پرونده‌های یک عضو تیم محدود کند
+        # (بخش «تیم فروش» پنل ادمین). برای کاربران عادی بی‌اثر است،
+        # چون دامنه‌شان همین حالا روی خودشان قفل شده است.
+        query = query.filter(Lead.owner_id == owner_id)
     if search:
         # 1) کاراکترهای ویژه‌ی LIKE خنثی می‌شوند تا «%» یا «_» تایپ‌شده
         #    توسط کاربر به‌عنوان wildcard عمل نکند.
@@ -318,6 +326,74 @@ def get_related_leads(db: Session, lead: Lead, current_user: User):
     return query.order_by(Lead.created_at.desc()).all()
 
 
+def get_team_member_stats(db: Session, user_id: int) -> dict:
+    """
+    آمار خلاصه‌ی یک عضو تیم برای بخش «تیم فروش» پنل ادمین:
+    شمار پرونده‌ها به تفکیک وضعیت (فقط پرونده‌های فعالِ مالکیت)،
+    جمع فروش قطعی، تعداد وظایف باز و تعداد حذف‌های ثبت‌شده.
+    """
+    rows = (
+        db.query(Lead.status, func.count(Lead.id))
+        .filter(
+            Lead.owner_id == user_id,
+            Lead.is_deleted == False,  # noqa: E712
+        )
+        .group_by(Lead.status)
+        .all()
+    )
+    by_status = {status_value: int(count) for status_value, count in rows}
+
+    totals = (
+        db.query(
+            func.count(Lead.id),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (Lead.status == FINAL_FACTOR_STATUS, Lead.sale_amount),
+                        else_=0,
+                    )
+                ),
+                0,
+            ),
+        )
+        .filter(
+            Lead.owner_id == user_id,
+            Lead.is_deleted == False,  # noqa: E712
+        )
+        .one()
+    )
+
+    open_tasks = (
+        db.query(func.count(Task.id))
+        .join(Lead, Task.lead_id == Lead.id)
+        .filter(
+            Lead.owner_id == user_id,
+            Lead.is_deleted == False,  # noqa: E712
+            Task.status.notin_(["done", "canceled"]),
+        )
+        .scalar()
+        or 0
+    )
+
+    deleted_count = (
+        db.query(func.count(LeadDeletionAudit.id))
+        .filter(LeadDeletionAudit.owner_id == user_id)
+        .scalar()
+        or 0
+    )
+
+    return {
+        "total": int(totals[0] or 0),
+        "open": sum(c for s, c in by_status.items() if s not in CLOSED_STATUSES),
+        "won": by_status.get(FINAL_FACTOR_STATUS, 0),
+        "lost": by_status.get("closed_lost", 0),
+        "by_status": by_status,
+        "total_sales": int(totals[1] or 0),
+        "open_tasks": int(open_tasks),
+        "deleted_count": int(deleted_count),
+    }
+
+
 def search_leads(
     db: Session,
     current_user: User,
@@ -326,9 +402,10 @@ def search_leads(
     smart_filter: str | None = None,
     skip: int = 0,
     limit: int = 20,
+    owner_id: int | None = None,
 ):
     query = db.query(Lead).filter(Lead.is_deleted == False)
-    query = _apply_lead_filters(query, current_user, search, status, smart_filter)
+    query = _apply_lead_filters(query, current_user, search, status, smart_filter, owner_id=owner_id)
     return (
         query.order_by(Lead.created_at.desc())
         .offset(skip)
@@ -343,10 +420,11 @@ def count_leads(
     search: str | None = None,
     status: str | None = None,
     smart_filter: str | None = None,
+    owner_id: int | None = None,
 ) -> int:
     """تعداد کل نتایج با همان فیلترهای جستجو — برای صفحه‌بندی فرانت‌اند."""
     query = db.query(func.count(Lead.id)).filter(Lead.is_deleted == False)
-    query = _apply_lead_filters(query, current_user, search, status, smart_filter)
+    query = _apply_lead_filters(query, current_user, search, status, smart_filter, owner_id=owner_id)
     return int(query.scalar() or 0)
 
 

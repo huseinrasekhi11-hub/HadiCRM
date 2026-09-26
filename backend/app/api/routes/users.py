@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from app.auth.dependencies import get_current_user
 from app.models.user import User
@@ -15,6 +15,8 @@ from app.crud.user import (
     get_user_by_mobile,
     get_assignable_users,
 )
+from app.crud.lead import get_team_member_stats
+from app.models.lead_deletion_audit import LeadDeletionAudit
 from app.schemas.user import (
     UserCreate,
     UserUpdate,
@@ -93,6 +95,51 @@ def read_user(
         )
 
     return user
+
+
+@router.get("/{user_id}/deletions")
+def read_user_deletions(
+    user_id: int,
+    include_restored: bool = Query(True, description="شامل موارد احیاشده یا بدون آن‌ها"),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(Roles.ADMIN, Roles.CEO)),
+):
+    """
+    فهرست پرونده‌های حذف‌شده‌ای که مالک اصلی‌شان این کاربر بوده —
+    برای بخش «تیم فروش» پنل ادمین. (پرونده‌های حذف‌شده از جستجوی
+    عمومی لیدها بیرون‌اند، پس اینجا مستقیم از ممیزی حذف خوانده می‌شود.)
+    """
+    if not get_user(db, user_id):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    rows = (
+        db.query(LeadDeletionAudit)
+        .filter(LeadDeletionAudit.owner_id == user_id)
+        .order_by(LeadDeletionAudit.deleted_at.desc())
+        .limit(limit)
+        .all()
+    )
+    if not include_restored:
+        rows = [r for r in rows if r.restored_at is None]
+
+    return [
+        {
+            "id": r.id,
+            "lead_id": r.lead_id,
+            "customer_name": r.customer_name,
+            "mobile": r.mobile,
+            "previous_status": r.previous_status,
+            "owner_id": r.owner_id,
+            "owner_full_name": r.owner_full_name,
+            "deleted_by_id": r.deleted_by_id,
+            "deleted_by_full_name": r.deleted_by_full_name,
+            "deleted_at": r.deleted_at,
+            "sale_amount": r.sale_amount,
+            "restored_at": r.restored_at,
+        }
+        for r in rows
+    ]
 
 
 # ----------------------------------------
