@@ -1,4 +1,5 @@
 import { api, bumpSessionEpoch } from "./requestCache";
+import { setAccessToken, clearAccessToken } from "./tokenStore";
 
 export { api };
 
@@ -7,12 +8,16 @@ export function clearRequestCache() {
   bumpSessionEpoch();
 }
 
-const ACCESS_TOKEN_KEY = "hadiflow_access_token";
-const REFRESH_TOKEN_KEY = "hadiflow_refresh_token";
-
+/**
+ * End the local side of the session.
+ *
+ * There are no tokens in localStorage any more: the refresh token lives in
+ * an HttpOnly cookie (the server clears it) and the access token only ever
+ * existed in memory. Clearing here therefore means: drop the in-memory
+ * token, invalidate cached payloads and tell AuthContext to forget the user.
+ */
 function clearSession() {
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  clearAccessToken();
   // Cached payloads belong to the previous session; bumping the epoch
   // invalidates them AND namespaces any entry still in flight, so a
   // different user logging in on the same browser can never be served
@@ -25,27 +30,20 @@ function clearSession() {
 // همگی منتظر همین یک Promise می‌مانند تا چند بار refresh نزنیم.
 let refreshPromise = null;
 
-async function refreshAccessToken() {
-  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-  if (!refreshToken) return null;
-
+/**
+ * Ask the server for a fresh access token.
+ *
+ * No body is sent: the refresh token travels in the HttpOnly cookie, which
+ * script cannot read (that is the whole point). The rotated cookie comes
+ * back on the response and the browser stores it for us.
+ */
+export async function refreshAccessToken() {
   if (!refreshPromise) {
-    // از نمونه‌ی خام axios استفاده می‌شود تا اینترسپتور دوباره فعال نشود
     refreshPromise = api
-      .post(
-        "/auth/refresh-token",
-        { refresh_token: refreshToken },
-        { skipAuthRefresh: true }
-      )
+      .post("/auth/refresh-token", {}, { skipAuthRefresh: true })
       .then((res) => {
         const newToken = res.data?.access_token;
-        if (newToken) localStorage.setItem(ACCESS_TOKEN_KEY, newToken);
-        // Refresh tokens now ROTATE server-side (replay of a consumed
-        // token revokes the whole session family). Persisting the new
-        // refresh token is mandatory — keeping the old one would lock
-        // the user out on the next refresh.
-        const newRefresh = res.data?.refresh_token;
-        if (newRefresh) localStorage.setItem(REFRESH_TOKEN_KEY, newRefresh);
+        if (newToken) setAccessToken(newToken);
         return newToken || null;
       })
       .catch(() => null)
@@ -62,8 +60,11 @@ api.interceptors.response.use(
     const original = error.config || {};
     const status = error.response?.status;
 
-    // فقط یک بار تلاش مجدد، و هرگز روی خود درخواست refresh
-    if (status === 401 && !original._retried && !original.skipAuthRefresh) {
+    // فقط یک بار تلاش مجدد، و هرگز روی خود درخواست refresh.
+    // تلاشِ ناموفقِ ورود هم ۴۰۱ است؛ آن‌جا معنای «نشست تمام شد» ندارد و
+    // نیازی به refresh نیست (کوکی‌ای هم وجود ندارد).
+    const isLoginCall = String(original.url || "").includes("/auth/login");
+    if (status === 401 && !isLoginCall && !original._retried && !original.skipAuthRefresh) {
       original._retried = true;
       const newToken = await refreshAccessToken();
       if (newToken) {
@@ -73,7 +74,7 @@ api.interceptors.response.use(
       }
       // تازه‌سازی شکست خورد → نشست واقعاً تمام شده است
       clearSession();
-    } else if (status === 401) {
+    } else if (status === 401 && !isLoginCall) {
       clearSession();
     }
 
@@ -91,6 +92,10 @@ export async function login(mobile, password) {
   const res = await api.post("/auth/login", form, {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
   });
+  // The server also sets the refresh token as an HttpOnly cookie; the
+  // copy in the body is only useful for non-browser clients, so it is
+  // deliberately NOT persisted here.
+  if (res.data?.access_token) setAccessToken(res.data.access_token);
   return res.data;
 }
 export async function getMe() {
@@ -98,22 +103,33 @@ export async function getMe() {
   return res.data;
 }
 /**
- * Server-side logout: revokes the refresh session so the token cannot be
- * replayed even if it was copied before logout. Best-effort — callers
- * must clear local state regardless of the outcome.
+ * Change the password of the logged-in account.
+ *
+ * The current password is required, so a stolen access token alone cannot
+ * take over the account. The refresh cookie identifies the session that
+ * should stay alive; every other session is revoked server-side.
+ */
+export async function changePassword(currentPassword, newPassword) {
+  const res = await api.post("/auth/change-password", {
+    current_password: currentPassword,
+    new_password: newPassword,
+  });
+  return res.data;
+}
+
+/**
+ * Server-side logout: revokes the refresh session and clears the cookie so
+ * the token cannot be replayed even if it was copied before logout.
+ * Best-effort — callers must clear local state regardless of the outcome.
  */
 export async function logoutSession() {
-  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-  if (!refreshToken) return;
   try {
-    await api.post(
-      "/auth/logout",
-      { refresh_token: refreshToken },
-      { skipAuthRefresh: true },
-    );
+    // No body: the refresh token is identified by its HttpOnly cookie.
+    await api.post("/auth/logout", {}, { skipAuthRefresh: true });
   } catch {
     // network/API failure must not block local logout
   }
+  clearAccessToken();
 }
 export async function getDashboard() {
   const res = await api.get("/dashboard/");

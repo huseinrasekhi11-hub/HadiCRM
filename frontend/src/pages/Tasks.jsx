@@ -9,7 +9,7 @@ import {
   getMyTasks, updateLeadTaskStatus, createLeadTask,
   searchLeads, setLeadFollowUp,
 } from "../api/client";
-import { useToast } from "../components/Toast";
+import { useToast } from "../hooks/useToast";
 import AppShell from "../components/AppShell";
 import FollowUpModal from "../components/FollowUpModal";
 import { statusLabel, statusColor } from "../leadStatus";
@@ -73,9 +73,12 @@ const FollowUpRow = memo(({ lead, overdue, onOpen, onReschedule }) => {
 });
 
 /* ---------- Task row ---------- */
-const TaskRow = memo(({ task, onToggle, onOpenLead }) => {
+const TaskRow = memo(({ task, onToggle, onOpenLead, nowTs }) => {
   const isDone = task.status === "done";
-  const isOverdue = !isDone && new Date(task.due_at).getTime() < Date.now();
+  // `nowTs` is handed down by the parent instead of calling Date.now()
+  // here: reading the clock during render is impure, and it made every
+  // row compute a different "now" for the same render pass.
+  const isOverdue = !isDone && new Date(task.due_at).getTime() < nowTs;
   return (
     <div className={`task-row ${isDone ? "task-row--done" : ""}`}>
       <button
@@ -113,17 +116,24 @@ function NewTaskModal({ onClose, onSubmit }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  // An empty query has nothing to search, and the results of the previous
+  // query must not linger on screen: both are derived here rather than
+  // being cleared from inside an effect (which would render twice).
+  const query = search.trim();
+  const visibleResults = query ? results : [];
+  const showSearching = searching && Boolean(query);
+
   useEffect(() => {
-    if (!search.trim()) { setResults([]); return; }
+    if (!query) return;
     const t = setTimeout(() => {
       setSearching(true);
-      searchLeads({ search: search.trim(), limit: 10 })
+      searchLeads({ search: query, limit: 10 })
         .then(setResults)
         .catch(() => setResults([]))
         .finally(() => setSearching(false));
     }, 300);
     return () => clearTimeout(t);
-  }, [search]);
+  }, [query]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -170,11 +180,11 @@ function NewTaskModal({ onClose, onSubmit }) {
                 />
               </div>
               <div className="nt-results">
-                {searching && <div className="nt-results__hint"><Loader2 size={15} className="spin" /> در حال جستجو…</div>}
-                {!searching && search && results.length === 0 && (
+                {showSearching && <div className="nt-results__hint"><Loader2 size={15} className="spin" /> در حال جستجو…</div>}
+                {!showSearching && query && visibleResults.length === 0 && (
                   <div className="nt-results__hint">پرونده‌ای یافت نشد.</div>
                 )}
-                {results.map((lead) => (
+                {visibleResults.map((lead) => (
                   <button
                     type="button"
                     key={lead.id}
@@ -264,9 +274,11 @@ export default function Tasks() {
   const [rescheduleLead, setRescheduleLead] = useState(null);
   const [completedOpen, setCompletedOpen] = useState(false);
 
+  // No synchronous setState at the top: on mount the initial state already
+  // is {loading: true, error: ""}, and a later refresh (after a follow-up
+  // is rescheduled) should keep the current list on screen instead of
+  // flashing the skeleton again.
   const loadAll = useCallback(() => {
-    setLoading(true);
-    setError("");
     return Promise.all([
       getMyTasks().catch(() => []),
       searchLeads({ smartFilter: "today_followup", limit: 60 }).catch(() => []),
@@ -276,6 +288,7 @@ export default function Tasks() {
         setTasks(t);
         setTodayFollowUps(tf);
         setOverdueFollowUps(of);
+        setError("");
       })
       .catch(() => setError("دریافت کارهای روزانه با خطا مواجه شد."))
       .finally(() => setLoading(false));
@@ -283,8 +296,10 @@ export default function Tasks() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  /* ---- task grouping ---- */
-  const groups = useMemo(() => {
+  /* ---- task grouping ----
+     The clock is read once per grouping pass and handed to the rows (see
+     TaskRow) so every row in one render compares against the same "now". */
+  const { groups, nowTs } = useMemo(() => {
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const tomorrowStart = todayStart + 86400000;
@@ -302,7 +317,7 @@ export default function Tasks() {
     g.today.sort(byDue);
     g.upcoming.sort(byDue);
     g.completed.sort((a, b) => new Date(b.due_at) - new Date(a.due_at));
-    return g;
+    return { groups: g, nowTs: now.getTime() };
   }, [tasks]);
 
   const pendingCount = groups.overdue.length + groups.today.length + groups.upcoming.length;
@@ -389,19 +404,19 @@ export default function Tasks() {
             {/* ---- Tasks ---- */}
             <Section icon={AlertCircle} title="وظایف عقب‌افتاده" count={groups.overdue.length} tone="danger">
               {groups.overdue.map((task) => (
-                <TaskRow key={task.id} task={task} onToggle={handleToggleTask} onOpenLead={openLead} />
+                <TaskRow key={task.id} task={task} onToggle={handleToggleTask} onOpenLead={openLead} nowTs={nowTs} />
               ))}
             </Section>
 
             <Section icon={Clock} title="وظایف امروز" count={groups.today.length} tone="primary">
               {groups.today.map((task) => (
-                <TaskRow key={task.id} task={task} onToggle={handleToggleTask} onOpenLead={openLead} />
+                <TaskRow key={task.id} task={task} onToggle={handleToggleTask} onOpenLead={openLead} nowTs={nowTs} />
               ))}
             </Section>
 
             <Section icon={Calendar} title="وظایف پیش رو" count={groups.upcoming.length} tone="neutral">
               {groups.upcoming.map((task) => (
-                <TaskRow key={task.id} task={task} onToggle={handleToggleTask} onOpenLead={openLead} />
+                <TaskRow key={task.id} task={task} onToggle={handleToggleTask} onOpenLead={openLead} nowTs={nowTs} />
               ))}
             </Section>
 
@@ -417,7 +432,7 @@ export default function Tasks() {
                 {completedOpen && (
                   <div className="dw-section__list">
                     {groups.completed.map((task) => (
-                      <TaskRow key={task.id} task={task} onToggle={handleToggleTask} onOpenLead={openLead} />
+                      <TaskRow key={task.id} task={task} onToggle={handleToggleTask} onOpenLead={openLead} nowTs={nowTs} />
                     ))}
                   </div>
                 )}

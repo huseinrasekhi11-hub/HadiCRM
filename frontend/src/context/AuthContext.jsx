@@ -1,93 +1,42 @@
-import { createContext, useContext, useEffect, useState } from "react";
-import { login as apiLogin, getMe, clearRequestCache, logoutSession } from "../api/client";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { AuthContext } from "../hooks/useAuth";
+import {
+  bootstrapSession,
+  getSnapshot,
+  setAuthError,
+  signIn,
+  signOut,
+  subscribe,
+} from "./authStore";
 
-const AuthContext = createContext(null);
-
+/**
+ * React binding for the session store (see `authStore.js`).
+ *
+ * The provider no longer owns auth state — it only subscribes to it, so a
+ * login in one place (or another tab) updates every consumer in a single
+ * render pass instead of through effects that run after the fact.
+ */
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const session = useSyncExternalStore(subscribe, getSnapshot);
 
+  // Cold start: the access token lives in memory only, so a reload asks the
+  // server for a new one using the HttpOnly refresh cookie. If there is no
+  // valid cookie, this simply leaves the store "anonymous".
   useEffect(() => {
-    const token = localStorage.getItem("hadiflow_access_token");
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-    getMe()
-      .then((me) => setUser(me))
-      .catch(() => {
-        localStorage.removeItem("hadiflow_access_token");
-        localStorage.removeItem("hadiflow_refresh_token");
-      })
-      .finally(() => setLoading(false));
+    bootstrapSession();
   }, []);
 
-  // Session terminated by the API layer (expired refresh, 401): drop the
-  // user so RequireAuth redirects to /login instead of leaving the UI in
-  // a dead-token state. The event was dispatched before but never heard.
-  useEffect(() => {
-    const onUnauthorized = () => {
-      setUser(null);
-      setLoading(false);
-    };
-    window.addEventListener("auth-unauthorized", onUnauthorized);
-    return () => window.removeEventListener("auth-unauthorized", onUnauthorized);
-  }, []);
-
-  // Cross-tab auth synchronization: the `storage` event fires in the OTHER
-  // tabs whenever localStorage changes. Logging out (or being force-logged-
-  // out) in one tab now logs every other tab out too, and logging in as a
-  // different account in one tab re-fetches /me everywhere else — no more
-  // tabs stuck rendering the previous account's identity/cached data.
-  useEffect(() => {
-    const onStorage = (event) => {
-      const authKeys = ["hadiflow_access_token", "hadiflow_refresh_token"];
-      // key === null means localStorage.clear() in another tab
-      if (event.key !== null && !authKeys.includes(event.key)) return;
-      const token = localStorage.getItem("hadiflow_access_token");
-      if (!token) {
-        clearRequestCache();
-        setUser(null);
-        setLoading(false);
-      } else {
-        getMe()
-          .then((me) => setUser(me))
-          .catch(() => setUser(null));
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  async function login(mobile, password) {
-    setError(null);
-    const tokens = await apiLogin(mobile, password);
-    localStorage.setItem("hadiflow_access_token", tokens.access_token);
-    localStorage.setItem("hadiflow_refresh_token", tokens.refresh_token);
-    const me = await getMe();
-    setUser(me);
-    return me;
-  }
-
-  async function logout() {
-    // Real (server-side) logout first: revokes the refresh session so the
-    // token can't be replayed later even if it was copied from this
-    // browser. Best-effort — local state is cleared regardless.
-    await logoutSession();
-    localStorage.removeItem("hadiflow_access_token");
-    localStorage.removeItem("hadiflow_refresh_token");
-    clearRequestCache();
-    setUser(null);
-  }
-
-  return (
-    <AuthContext.Provider value={{ user, loading, error, setError, login, logout }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      user: session.user,
+      loading: session.status === "loading",
+      error: session.error,
+      setError: setAuthError,
+      login: signIn,
+      logout: signOut,
+    }),
+    [session],
   );
-}
 
-export function useAuth() {
-  return useContext(AuthContext);
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

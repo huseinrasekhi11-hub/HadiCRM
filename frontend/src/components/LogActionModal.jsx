@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Loader2, Activity, Clock } from "lucide-react";
 import { ACTION_TYPES, FOLLOWUP_QUICK_OPTIONS, quickFollowUpToDate } from "../leadStatus";
 import "./LogActionModal.css";
@@ -22,23 +22,23 @@ export default function LogActionModal({ initialData, onClose, onSubmit }) {
   const [title, setTitle] = useState(initialData?.title || "");
   const [description, setDescription] = useState(initialData?.description || "");
   const [outcome, setOutcome] = useState(initialData?.outcome || "");
-  const [followUpOption, setFollowUpOption] = useState(null);
-  const [customDate, setCustomDate] = useState("");
+  // Pre-filled from the activity being edited, once, when the dialog is
+  // mounted — deriving it in the initializer instead of syncing it into
+  // state from an effect (which rendered twice and fought the user's own
+  // edits if initialData ever changed identity).
+  const [followUpOption, setFollowUpOption] = useState(() => {
+    if (initialData?.next_follow_up) return "custom";
+    if (initialData?.no_followup_reason) return "none";
+    return null;
+  });
+  const [customDate, setCustomDate] = useState(
+    () => (initialData?.next_follow_up ? toLocalInputValue(initialData.next_follow_up) : "")
+  );
   const [noFollowUpReason, setNoFollowUpReason] = useState(initialData?.no_followup_reason || "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   const selectedAction = ACTION_TYPES.find((a) => a.value === activityType);
-
-  // Pre-fill follow-up data if editing
-  useEffect(() => {
-    if (initialData?.next_follow_up) {
-      setFollowUpOption("custom");
-      setCustomDate(toLocalInputValue(initialData.next_follow_up));
-    } else if (initialData?.no_followup_reason) {
-      setFollowUpOption("none");
-    }
-  }, [initialData]);
 
   function handlePickFollowUp(option) {
     setFollowUpOption(option);

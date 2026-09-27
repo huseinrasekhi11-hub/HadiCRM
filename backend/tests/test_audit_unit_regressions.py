@@ -311,4 +311,75 @@ def test_migration_graph_has_single_head():
 
     heads = [rev for rev in revisions if rev not in downs]
     assert len(heads) == 1, f"expected exactly one migration head, got {heads}"
-    assert heads[0] == "d2e6b4a8c1f5", "head should be the mobile_normalized migration"
+    # NOTE: keep this in sync when a new migration is added — the point of
+    # the assertion is that the graph stays *linear*, so exactly one
+    # revision is expected to be nobody's `down_revision`.
+    assert heads[0] == "e3f1c9b7d4a2", (
+        "head should be the login_rate_events migration (update this test "
+        f"when a newer revision lands); got {heads[0]}"
+    )
+
+
+# -----------------------------------------------------------
+# 10) Deployment defaults must fail safe
+#     (audit: "Render startup defaults to demo-data reseeding")
+# -----------------------------------------------------------
+_RENDER_START = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "render_start.sh")
+)
+
+
+def _render_start_code() -> str:
+    """متنِ اسکریپت بدون خطوطِ توضیحی (فقط دستورهای واقعی)."""
+    with open(_RENDER_START, encoding="utf-8") as fh:
+        lines = [
+            line
+            for line in fh.read().splitlines()
+            if not line.lstrip().startswith("#")
+        ]
+    return "\n".join(lines)
+
+
+def test_render_start_does_not_reseed_demo_data_by_default():
+    """داده‌ی دمو باید «انتخابی» باشد، نه پیش‌فرضِ هر deploy/restart."""
+    script = _render_start_code()
+
+    # بدترین حالت: مقدارِ پیش‌فرضِ true یعنی بازنویسیِ داده با هر استقرار
+    assert "RESEED_DEMO_DATA:-true" not in script, (
+        "render_start.sh must not default RESEED_DEMO_DATA to true — a wrong "
+        "or missing env var would then wipe and regenerate demo data on every "
+        "deploy."
+    )
+    assert "RESEED_DEMO_DATA:-false" in script
+    # و اجرای اسکریپتِ بازنشانی فقط در صورتِ درخواستِ صریح
+    reseed_line_index = script.index("python clear_and_reseed.py")
+    guard = script[:reseed_line_index]
+    assert "RESEED_DEMO_DATA" in guard, "the reseed call must be guarded"
+
+
+def test_render_start_applies_migrations_before_serving():
+    """استقرار باید قبل از بالا آمدنِ API مهاجرت‌ها را اعمال کند."""
+    script = _render_start_code()
+
+    assert "alembic upgrade head" in script
+    assert script.index("alembic upgrade head") < script.index("uvicorn")
+
+
+# -----------------------------------------------------------
+# 11) Refresh token must never be handed to browser storage
+# -----------------------------------------------------------
+def test_login_sets_an_httponly_cookie():
+    """توکن تمدید باید HttpOnly باشد (localStorage برای هر اسکریپتی باز است)."""
+    from app.auth.cookies import set_refresh_cookie
+    from app.config.settings import settings
+    from fastapi import Response
+
+    response = Response()
+    set_refresh_cookie(response, "test-token")
+
+    headers = [v for k, v in response.headers.items() if k.lower() == "set-cookie"]
+    assert headers, "login must set the refresh cookie"
+    cookie = headers[0]
+    assert "HttpOnly" in cookie
+    assert settings.REFRESH_COOKIE_NAME in cookie
+    assert f"Path={settings.REFRESH_COOKIE_PATH}" in cookie

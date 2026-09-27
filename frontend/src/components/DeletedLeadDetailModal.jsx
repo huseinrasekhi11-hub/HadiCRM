@@ -51,20 +51,30 @@ function Row({ label, value, ltr = false }) {
 
 export default function DeletedLeadDetailModal({ auditId, summary, onClose, onRestore }) {
   const dialogRef = useModalBehavior(onClose);
-  const [detail, setDetail] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+
+  // Keyed by auditId: opening a different record resets to the loading
+  // state while rendering (the documented "adjust state on prop change"
+  // pattern) rather than in an effect, which would first paint the
+  // previous record's detail again.
+  const [state, setState] = useState(() => ({
+    id: auditId,
+    detail: null,
+    loading: true,
+    error: "",
+  }));
+  if (state.id !== auditId) {
+    setState({ id: auditId, detail: null, loading: true, error: "" });
+  }
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError("");
     getDeletedLeadDetail(auditId)
-      .then((d) => { if (!cancelled) setDetail(d); })
-      .catch(() => { if (!cancelled) setError("دریافت جزئیات این حذف ممکن نشد."); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .then((d) => { if (!cancelled) setState((s) => ({ ...s, detail: d, loading: false })); })
+      .catch(() => { if (!cancelled) setState((s) => ({ ...s, error: "دریافت جزئیات این حذف ممکن نشد.", loading: false })); });
     return () => { cancelled = true; };
   }, [auditId]);
+
+  const { detail, loading, error } = state;
 
   // The list row is already on screen, so its fields render immediately and
   // the snapshot fills in behind them rather than showing a blank dialog.

@@ -1,5 +1,5 @@
 import { Navigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 import "./RequireAuth.css"; // We'll add a small CSS file for the loader
 
 export default function RequireAuth({ children }) {

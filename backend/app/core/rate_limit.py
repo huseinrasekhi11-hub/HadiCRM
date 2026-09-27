@@ -1,11 +1,12 @@
 """
 ===========================================================
-محدودسازی نرخ ورود (brute-force / credential-stuffing control)
+محدودسازی نرخِ عملیاتِ حساسی که با حدس‌زدن قابل حمله‌اند
+(ورود = brute-force / credential-stuffing، و تغییر رمز)
 -----------------------------------------------------------
 پیش از این /auth/login هیچ throttle‌ای نداشت: حدس رمز نامحدود بود و
 Argon2 فقط هزینه‌ی هر تلاش را بالا می‌برد، نه تعدادشان را.
 
-مدل فعلی — sliding window در حافظه‌ی فرایند:
+مدل فعلی — پنجره‌ی لغزنده روی یک انبارِ «مشترک»:
   * به ازای هر (IP + شماره‌ی نرمال‌شده): حداکثر
     LOGIN_MAX_FAILURES_PER_ACCOUNT ورودِ ناموفق در پنجره‌ی
     LOGIN_RATE_WINDOW_SECONDS → بعد از آن 429 با Retry-After.
@@ -15,20 +16,38 @@ Argon2 فقط هزینه‌ی هر تلاش را بالا می‌برد، نه �
   * ورود موفق، شمارنده‌ی همان (IP+شماره) را صفر می‌کند؛ بودجه‌ی IP
     عمداً صفر نمی‌شود تا مهاجم نتواند با یک حساب معتبر، بودجه‌ی
     حدس‌زدنِ بقیه‌ی شماره‌ها را بازیابی کند.
+  * همین مدل برای «تغییر رمزِ عبور» هم اعمال می‌شود (حدسِ رمزِ فعلی
+    روی یک نشستِ لاگین‌شده هم باید محدود باشد).
 
-محدودیت معماری (مستند و عمدی): این limiter در حافظه‌ی هر فرایند است.
-با uvicorn --workers N یا چند کانتینر، هر replica بودجه‌ی مستقل دارد
-(یعنی مؤثر N برابر). برای استقرار چندنسخه‌ای باید throttle مشترک
-(Redis/درگاه API) جلوی سرویس گذاشته شود؛ این لایه حداقلِ دفاعِ
-داخل برنامه است، نه جایگزینِ edge limiting.
+دو انبار وجود دارد (انتخاب با LOGIN_RATE_BACKEND):
+
+  * "db"     → DatabaseRateLimiter: شمارنده‌ها در جدول login_rate_events
+               (مهاجرت e3f1c9b7d4a2) و بین همه‌ی workerها/replicaها مشترک.
+               این حالتِ پیش‌فرض است ("auto") چون دیتابیس از قبل بین همه‌ی
+               نمونه‌ها مشترک است و وابستگیِ تازه‌ای (Redis و ...) نمی‌خواهد.
+  * "memory" → SlidingWindowCounter در حافظه‌ی فرایند (سریع، ولی هر
+               replica بودجه‌ی مستقل دارد؛ فقط برای توسعه/تست یا وقتی
+               throttle در لبه (gateway/WAF/CDN) انجام می‌شود).
+
+در حالت "auto" شمارنده‌ی حافظه‌ای هم به‌عنوانِ خطِ اولِ ارزان نگه داشته
+می‌شود (وقتی یک کلاینت از قبل در همین فرایند مسدود شده، رفت‌وبرگشتِ
+دیتابیس حذف می‌شود)، اما تصمیمِ نهایی با انبارِ مشترک است: سقفِ مؤثر
+همان LOGIN_MAX_FAILURES_* است، نه N برابرِ تعداد نمونه‌ها.
+
+نکته برای استقرارهای خیلی پردازش‌سنگین: هنوز توصیه می‌شود throttle اصلی
+در لبه/درگاه (و یا Redis در صورتِ موجودبودن) هم انجام شود؛ این لایه
+دفاعِ داخل برنامه است، نه جایگزینِ edge limiting.
 ===========================================================
 """
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request, status
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.config.settings import settings
+from app.core.logger import app_logger
 from app.core.text_normalization import normalize_mobile
 
 
@@ -81,14 +100,273 @@ class SlidingWindowCounter:
             self._hits.clear()
 
 
-# نمونه‌های سراسری (یک‌بار در فرایند ساخته می‌شوند)
-_FAILURE_PER_ACCOUNT = SlidingWindowCounter(
-    max_events=settings.LOGIN_MAX_FAILURES_PER_ACCOUNT,
-    window_seconds=settings.LOGIN_RATE_WINDOW_SECONDS,
+class DatabaseRateLimiter:
+    """
+    شمارنده‌ی پنجره‌ی لغزنده روی دیتابیسِ مشترک.
+
+    هر تلاشِ ناموفق یک ردیف در login_rate_events می‌گذارد؛ شمارش و
+    پاک‌سازی همیشه در یک تراکنشِ کوتاه و مستقل انجام می‌شود (نه روی
+    session درخواست) تا ابطال یا خطای دیتابیس در خودِ لاگین، بودجه‌ی
+    محدودسازی را پاک نکند و برعکس، شمارش‌ها بین workerها دیده شوند.
+    """
+
+    # هر چند تماس یک‌بار، ردیف‌های قدیمیِ «همه‌ی کلیدها» پاک می‌شوند؛
+    # پاک‌سازیِ per-key در هر record انجام می‌شود و این فقط برای کلیدهای
+    # رهاشده است (مثلاً IPهایی که دیگر هرگز تلاش نمی‌کنند).
+    _GLOBAL_PRUNE_EVERY = 25
+
+    def __init__(self, session_factory, max_events: int, window_seconds: int):
+        self._session_factory = session_factory
+        self.max_events = max_events
+        self.window_seconds = window_seconds
+        self._calls = 0
+        self._lock = threading.Lock()
+
+    # -- internals -------------------------------------------------
+    def _new_session(self):
+        # ایمپورتِ محلی: جلوگیری از چرخه‌ی import در زمانِ راه‌اندازی
+        from app.database.database import SessionLocal
+
+        return (self._session_factory or SessionLocal)()
+
+    def _count(self, db, key: str, cutoff: datetime) -> tuple[int, datetime | None]:
+        from sqlalchemy import func
+
+        from app.models.login_rate_event import LoginRateEvent
+
+        row = (
+            db.query(
+                func.count(LoginRateEvent.id),
+                func.min(LoginRateEvent.created_at),
+            )
+            .filter(
+                LoginRateEvent.event_key == key,
+                LoginRateEvent.created_at > cutoff,
+            )
+            .one()
+        )
+        return int(row[0] or 0), row[1]
+
+    def _prune_key(self, db, key: str, cutoff: datetime) -> None:
+        from app.models.login_rate_event import LoginRateEvent
+
+        db.query(LoginRateEvent).filter(
+            LoginRateEvent.event_key == key,
+            LoginRateEvent.created_at <= cutoff,
+        ).delete(synchronize_session=False)
+
+    def _prune_all(self, db, cutoff: datetime) -> None:
+        from app.models.login_rate_event import LoginRateEvent
+
+        db.query(LoginRateEvent).filter(
+            LoginRateEvent.created_at <= cutoff
+        ).delete(synchronize_session=False)
+
+    def _retry_after(self, oldest: datetime | None, now: datetime) -> int:
+        if oldest is None:
+            return 1
+        if oldest.tzinfo is None:
+            oldest = oldest.replace(tzinfo=timezone.utc)
+        retry_after = int((oldest + timedelta(seconds=self.window_seconds) - now).total_seconds()) + 1
+        return max(retry_after, 1)
+
+    # -- public API (هم‌امضا با SlidingWindowCounter) ---------------
+    def check(self, key: str) -> tuple[bool, int]:
+        """بدون ثبت رویداد: (allowed, retry_after_seconds)."""
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=self.window_seconds)
+        db = self._new_session()
+        try:
+            count, oldest = self._count(db, key, cutoff)
+        except SQLAlchemyError as exc:
+            app_logger.warning(f"[RateLimit] shared counter check failed ({exc})")
+            return True, 0  # دیتابیسِ پایین‌دست؛ لاگین خودش هم شکست می‌خورد
+        finally:
+            db.close()
+
+        if count >= self.max_events:
+            return False, self._retry_after(oldest, now)
+        return True, 0
+
+    def record(self, key: str) -> tuple[bool, int]:
+        """ثبت یک تلاش ناموفق و بررسی عبور از حد مجاز."""
+        from app.models.login_rate_event import LoginRateEvent
+
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=self.window_seconds)
+
+        with self._lock:
+            self._calls += 1
+            do_global_prune = self._calls % self._GLOBAL_PRUNE_EVERY == 0
+
+        db = self._new_session()
+        try:
+            self._prune_key(db, key, cutoff)
+            if do_global_prune:
+                self._prune_all(db, cutoff)
+            db.add(LoginRateEvent(event_key=key, created_at=now))
+            db.flush()
+            count, oldest = self._count(db, key, cutoff)
+            db.commit()
+        except SQLAlchemyError as exc:
+            db.rollback()
+            app_logger.warning(f"[RateLimit] shared counter record failed ({exc})")
+            return True, 0
+        finally:
+            db.close()
+
+        if count > self.max_events:
+            return False, self._retry_after(oldest, now)
+        return True, 0
+
+    def prune_expired(self) -> int:
+        """حذفِ همه‌ی رویدادهای خارج از پنجره (job نگهداری)."""
+        from app.models.login_rate_event import LoginRateEvent
+
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=self.window_seconds)
+        db = self._new_session()
+        try:
+            removed = (
+                db.query(LoginRateEvent)
+                .filter(LoginRateEvent.created_at <= cutoff)
+                .delete(synchronize_session=False)
+            )
+            db.commit()
+            return int(removed)
+        except SQLAlchemyError as exc:
+            db.rollback()
+            app_logger.warning(f"[RateLimit] shared counter prune failed ({exc})")
+            return 0
+        finally:
+            db.close()
+
+    def reset(self, key: str) -> None:
+        from app.models.login_rate_event import LoginRateEvent
+
+        db = self._new_session()
+        try:
+            db.query(LoginRateEvent).filter(
+                LoginRateEvent.event_key == key
+            ).delete(synchronize_session=False)
+            db.commit()
+        except SQLAlchemyError as exc:
+            db.rollback()
+            app_logger.warning(f"[RateLimit] shared counter reset failed ({exc})")
+        finally:
+            db.close()
+
+    def clear(self) -> None:
+        """فقط برای تست‌ها: حذفِ کاملِ شمارنده‌های مشترک."""
+        from app.models.login_rate_event import LoginRateEvent
+
+        db = self._new_session()
+        try:
+            db.query(LoginRateEvent).delete(synchronize_session=False)
+            db.commit()
+        except SQLAlchemyError as exc:
+            db.rollback()
+            app_logger.warning(f"[RateLimit] shared counter clear failed ({exc})")
+        finally:
+            db.close()
+
+
+class RateBudget:
+    """
+    یک بودجه‌ی نام‌دار (مثلاً «ورودِ ناموفق برای این شماره») که تصمیم را
+    ابتدا با شمارنده‌ی ارزانِ داخل فرایند و سپس با انبارِ مشترک می‌گیرد.
+
+    نکته‌ی مهم: انبارِ مشترک «مرجع» است. اگر مقدارِ
+    LOGIN_RATE_BACKEND=memory تنظیم شود، فقط حافظه استفاده می‌شود و سقفِ
+    مؤثر به تعداد فرایندها ضرب خواهد شد (برای توسعه/تست یا وقتی throttle
+    در لبه انجام می‌شود).
+    """
+
+    def __init__(self, name: str, max_events: int, window_seconds: int, use_shared: bool):
+        self.name = name
+        self.max_events = max_events
+        self.window_seconds = window_seconds
+        self._memory = SlidingWindowCounter(max_events, window_seconds)
+        self._shared = (
+            DatabaseRateLimiter(
+                session_factory=None,
+                max_events=max_events,
+                window_seconds=window_seconds,
+            )
+            if use_shared
+            else None
+        )
+
+    # -- introspection (تست‌ها) -------------------------------------
+    @property
+    def shared(self) -> DatabaseRateLimiter | None:
+        return self._shared
+
+    @property
+    def memory(self) -> SlidingWindowCounter:
+        return self._memory
+
+    def clear_memory_only(self) -> None:
+        """پاک‌سازیِ فقط شمارنده‌ی حافظه‌ای (شبیه‌سازیِ یک فرایندِ تازه)."""
+        self._memory.clear()
+
+    # -- operations -------------------------------------------------
+    def check(self, key: str) -> tuple[bool, int]:
+        allowed, retry_after = self._memory.check(key)
+        if not allowed:
+            return allowed, retry_after
+        if self._shared is not None:
+            return self._shared.check(key)
+        return True, 0
+
+    def record(self, key: str) -> tuple[bool, int]:
+        self._memory.record(key)
+        if self._shared is not None:
+            allowed, retry_after = self._shared.record(key)
+            if not allowed:
+                return allowed, retry_after
+        return True, 0
+
+    def reset(self, key: str) -> None:
+        self._memory.reset(key)
+        if self._shared is not None:
+            self._shared.reset(key)
+
+    def clear(self) -> None:
+        self._memory.clear()
+        if self._shared is not None:
+            self._shared.clear()
+
+
+def _use_shared_backend() -> bool:
+    backend = (settings.LOGIN_RATE_BACKEND or "auto").strip().lower()
+    if backend in ("memory", "inmemory", "in-memory", "local", "off", "none"):
+        return False
+    if backend in ("auto", "db", "database", "shared"):
+        return True
+    app_logger.warning(
+        f"[RateLimit] unknown LOGIN_RATE_BACKEND={backend!r}; "
+        "using the shared database backend."
+    )
+    return True
+
+
+_USE_SHARED = _use_shared_backend()
+_WINDOW = settings.LOGIN_RATE_WINDOW_SECONDS
+
+# بودجه‌ی ورود: (IP + شماره) و (IP)
+_LOGIN_ACCOUNT = RateBudget(
+    "login-account", settings.LOGIN_MAX_FAILURES_PER_ACCOUNT, _WINDOW, _USE_SHARED
 )
-_FAILURE_PER_IP = SlidingWindowCounter(
-    max_events=settings.LOGIN_MAX_FAILURES_PER_IP,
-    window_seconds=settings.LOGIN_RATE_WINDOW_SECONDS,
+_LOGIN_IP = RateBudget(
+    "login-ip", settings.LOGIN_MAX_FAILURES_PER_IP, _WINDOW, _USE_SHARED
+)
+
+# بودجه‌ی تغییر رمز: حدسِ «رمز فعلی» روی نشستِ لاگین‌شده هم باید محدود باشد
+_PASSWORD_ACCOUNT = RateBudget(
+    "password-change",
+    settings.PASSWORD_CHANGE_MAX_FAILURES,
+    settings.PASSWORD_CHANGE_WINDOW_SECONDS,
+    _USE_SHARED,
 )
 
 _TOO_MANY_REQUESTS_DETAIL = (
@@ -110,40 +388,91 @@ def _identity_key(username: str | None) -> str:
     return normalized or (username or "").strip().lower()
 
 
+def _too_many_requests(retry_after: int) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=_TOO_MANY_REQUESTS_DETAIL,
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+# -----------------------------------------------------------
+# ورود (login)
+# -----------------------------------------------------------
 def clear_login_counters() -> None:
-    """فقط برای تست‌ها: پاک‌سازی کامل شمارنده‌ها."""
-    _FAILURE_PER_ACCOUNT.clear()
-    _FAILURE_PER_IP.clear()
+    """فقط برای تست‌ها: پاک‌سازی کامل شمارنده‌ها (حافظه و دیتابیس)."""
+    _LOGIN_ACCOUNT.clear()
+    _LOGIN_IP.clear()
 
 
 def login_rate_guard(request: Request, username: str | None) -> None:
     """پیش از پردازش لاگین: اگر بودجه تمام شده، 429 برگردان."""
     ip = _client_ip(request)
 
-    allowed, retry_after = _FAILURE_PER_IP.check(f"ip:{ip}")
+    # ۱) بودجه‌ی IP (ضدِ credential stuffing روی شماره‌های مختلف)
+    allowed, retry_after = _LOGIN_IP.check(f"ip:{ip}")
     if not allowed:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=_TOO_MANY_REQUESTS_DETAIL,
-            headers={"Retry-After": str(retry_after)},
-        )
+        raise _too_many_requests(retry_after)
 
-    allowed, retry_after = _FAILURE_PER_ACCOUNT.check(f"acct:{ip}|{_identity_key(username)}")
+    # ۲) بودجه‌ی (IP + حساب) — تصمیم نهایی با انبارِ مشترک است
+    allowed, retry_after = _LOGIN_ACCOUNT.check(
+        f"acct:{ip}|{_identity_key(username)}"
+    )
     if not allowed:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=_TOO_MANY_REQUESTS_DETAIL,
-            headers={"Retry-After": str(retry_after)},
-        )
+        raise _too_many_requests(retry_after)
 
 
 def report_login_failure(request: Request, username: str | None) -> None:
-    """ثبت یک تلاش ناموفق در هر دو شمارنده."""
+    """ثبت یک تلاش ناموفق در شمارنده‌های حافظه‌ای و مشترک."""
     ip = _client_ip(request)
-    _FAILURE_PER_IP.record(f"ip:{ip}")
-    _FAILURE_PER_ACCOUNT.record(f"acct:{ip}|{_identity_key(username)}")
+    _LOGIN_IP.record(f"ip:{ip}")
+    _LOGIN_ACCOUNT.record(f"acct:{ip}|{_identity_key(username)}")
 
 
 def report_login_success(request: Request, username: str | None) -> None:
     """ورود موفق: بودجه‌ی همان (IP+شماره) بازمی‌گردد؛ بودجه‌ی IP نه."""
-    _FAILURE_PER_ACCOUNT.reset(f"acct:{_client_ip(request)}|{_identity_key(username)}")
+    _LOGIN_ACCOUNT.reset(f"acct:{_client_ip(request)}|{_identity_key(username)}")
+
+
+# -----------------------------------------------------------
+# تغییر رمز عبور (password change)
+# -----------------------------------------------------------
+def clear_password_change_counters() -> None:
+    """فقط برای تست‌ها."""
+    _PASSWORD_ACCOUNT.clear()
+
+
+def password_change_guard(request: Request, username: str | None) -> None:
+    """پیش از تغییر رمز: اگر بودجه‌ی حدسِ «رمز فعلی» تمام شده، 429."""
+    allowed, retry_after = _PASSWORD_ACCOUNT.check(
+        f"pwd:{_client_ip(request)}|{_identity_key(username)}"
+    )
+    if not allowed:
+        raise _too_many_requests(retry_after)
+
+
+def report_password_change_failure(request: Request, username: str | None) -> None:
+    _PASSWORD_ACCOUNT.record(f"pwd:{_client_ip(request)}|{_identity_key(username)}")
+
+
+def report_password_change_success(request: Request, username: str | None) -> None:
+    _PASSWORD_ACCOUNT.reset(f"pwd:{_client_ip(request)}|{_identity_key(username)}")
+
+
+# -----------------------------------------------------------
+# نگهداری
+# -----------------------------------------------------------
+def cleanup_login_rate_events(retention_seconds: int | None = None) -> int:
+    """
+    نگهداری: حذفِ رویدادهای محدودسازِ خارج از پنجره تا جدولِ
+    login_rate_events روی استقرارهای کم‌ترافیک هم رشد بی‌پایان نکند.
+    (فراخوانی از job زمان‌بند — app/scheduler/jobs.py)
+    """
+    window = retention_seconds or settings.LOGIN_RATE_WINDOW_SECONDS
+    limiter = DatabaseRateLimiter(
+        session_factory=None, max_events=1, window_seconds=window
+    )
+    removed = limiter.prune_expired()
+    if removed:
+        app_logger.info(f"[RateLimit] pruned {removed} expired login-rate event(s).")
+    return removed

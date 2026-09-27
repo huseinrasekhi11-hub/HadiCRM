@@ -16,11 +16,13 @@ from app.crud.user import (
     get_assignable_users,
 )
 from app.models.lead_deletion_audit import LeadDeletionAudit
+from app.services.password_service import PasswordError, admin_reset_password
 from app.schemas.user import (
     UserCreate,
     UserUpdate,
     UserResponse,
     AssignableUserResponse,
+    AdminPasswordResetRequest,
 )
 router = APIRouter(
     prefix="/users",
@@ -167,6 +169,62 @@ def create_new_user(
         )
 
     return create_user(db, user)
+
+
+# ----------------------------------------
+# بازنشانی رمز عبور کاربر توسط ادمین/مدیرعامل
+#
+# پیش از این هیچ مسیری برای تغییر/بازنشانی رمز وجود نداشت — حتی برای
+# ادمین — و رمزِ فراموش‌شده یا لو‌رفته فقط با دستکاریِ مستقیم دیتابیس
+# قابل تعویض بود. بازنشانیِ خودخدمت («رمز را فراموش کرده‌ام») نیازمند
+# کانالِ تحویلِ خارج از برنامه (ایمیل/پیامک) است که در این پروژه وجود
+# ندارد؛ بنابراین مسیرِ پشتیبانی‌شده این است: ادمین رمزِ موقت تعیین
+# می‌کند و از یک راهِ مطمئن به کاربر می‌رساند، و کاربر بعد از ورود آن را
+# از طریق POST /auth/change-password عوض می‌کند.
+# ----------------------------------------
+@router.post("/{user_id}/reset-password")
+def reset_user_password(
+    user_id: int,
+    body: AdminPasswordResetRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(
+        require_roles(
+            Roles.ADMIN,
+            Roles.CEO,
+        )
+    ),
+):
+    db_user = get_user(db, user_id)
+    if not db_user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found",
+        )
+
+    # ادمین نباید از این مسیر رمزِ خودش را عوض کند: این اندپوینت به
+    # دانشِ «رمز فعلی» نیاز ندارد، بنابراین برای حسابِ خودش باید از
+    # /auth/change-password استفاده کند (مسیرِ سخت‌گیرانه‌تر).
+    if db_user.id == current_user.id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "برای تغییر رمزِ حساب خود از /auth/change-password استفاده کنید "
+                "(نیازمندِ رمز فعلی)."
+            ),
+        )
+
+    try:
+        admin_reset_password(db, db_user, body.new_password, actor=current_user)
+    except PasswordError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=exc.message,
+        ) from exc
+
+    return {
+        "message": "رمز عبور کاربر بازنشانی شد و همه‌ی نشست‌های فعال او باطل شد.",
+        "user_id": db_user.id,
+    }
 
 
 # ----------------------------------------

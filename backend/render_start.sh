@@ -50,15 +50,24 @@ alembic upgrade head
 echo "==> Seeding admin user"
 python -m app.scripts.seed_admin
 
-# ۴) داده‌ی دمو — مثل فرمان قبلی، هر بار بازنشانی می‌شود. وقتی داده‌ی
-#    واقعی روی استقرار رفت، در محیط Render مقدار RESEED_DEMO_DATA=false
-#    بگذارید تا این قدم حذف شود.
-if [ "${RESEED_DEMO_DATA:-true}" = "true" ]; then
-  echo "==> Reseeding demo data (set RESEED_DEMO_DATA=false to disable)"
-  python clear_and_reseed.py
-else
-  echo "==> Demo reseed skipped (RESEED_DEMO_DATA=false)"
-fi
+# ۴) داده‌ی دمو — پیش‌فرضِ امن: «خاموش».
+#
+#    این اسکریپت داده‌های کاربران آزمایشی (09120000001..09120000004) را
+#    حذف و صدها رکورد دمو بازتولید می‌کند. اجرای ناخواسته‌ی آن روی یک
+#    استقرار واقعی یعنی بازنویسیِ داده در هر deploy/restart؛ بنابراین
+#    حالت پیش‌فرض باید «انجام نده» باشد و seeding دمو باید آگاهانه و
+#    صریح درخواست شود:
+#        RESEED_DEMO_DATA=true     (مثلاً روی یک استقرارِ صرفاً نمایشی)
+#    هر مقدار ناشناخته/خالی هم به‌معنای false است (fail-closed).
+case "$(printf '%s' "${RESEED_DEMO_DATA:-false}" | tr '[:upper:]' '[:lower:]')" in
+  true|1|yes|on)
+    echo "==> RESEED_DEMO_DATA is enabled: wiping and regenerating demo data"
+    python clear_and_reseed.py
+    ;;
+  *)
+    echo "==> Demo reseed skipped (set RESEED_DEMO_DATA=true to enable it)"
+    ;;
+esac
 
 # ۵) اجرای API
 echo "==> Starting uvicorn on port ${PORT}"

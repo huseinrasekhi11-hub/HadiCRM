@@ -1,16 +1,18 @@
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutGrid, Users, ListChecks, LogOut, Bell,
   ChevronLeft, ChevronRight, BarChart3, Trash2, MoreHorizontal, X,
+  KeyRound,
 } from "lucide-react";
-import { useAuth } from "../context/AuthContext";
-import { useNotifications } from "../context/NotificationsContext";
+import { useAuth } from "../hooks/useAuth";
+import { useNotifications } from "../hooks/useNotifications";
 import { usePermissions } from "../hooks/usePermissions";
 import NotificationBell from "./NotificationBell";
 import ThemeToggle from "./ThemeToggle";
 import QuickActionFab from "./QuickActionFab";
 import LiveRegion from "./LiveRegion";
+import ChangePasswordModal from "./ChangePasswordModal";
 import "./AppShell.css";
 
 function buildDesktopNav(isAdmin) {
@@ -62,21 +64,31 @@ export default function AppShell({ children }) {
   const [isCollapsed, setIsCollapsed] = useState(
     () => localStorage.getItem("hadiflow_sidebar_collapsed") === "true"
   );
-  /* The mobile «بیشتر» sheet (admin-only destinations). */
-  const [moreOpen, setMoreOpen] = useState(false);
+  /* The mobile «بیشتر» sheet (admin-only destinations). The sheet belongs to
+   * the page it was opened from, so its "open" flag is stored together with
+   * that route and derived during render — closing it after every
+   * navigation used to need an extra effect (and an extra render). */
+  const [moreSheet, setMoreSheet] = useState({ open: false, route: null });
+  const moreOpen = moreSheet.open && moreSheet.route === location.pathname;
+  const openMore = useCallback(
+    () => setMoreSheet({ open: true, route: location.pathname }),
+    [location.pathname],
+  );
+  const closeMore = useCallback(
+    () => setMoreSheet({ open: false, route: location.pathname }),
+    [location.pathname],
+  );
+  /* Self-service password change (there was no such flow at all before). */
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const { unreadCount: unread } = useNotifications();
   const navItems = buildDesktopNav(isAdmin);
 
-  /* Close the sheet whenever the route changes — tapping a link should land
-   * on the page with the menu out of the way. */
-  useEffect(() => { setMoreOpen(false); }, [location.pathname]);
-
   useEffect(() => {
     if (!moreOpen) return;
-    const onKey = (e) => { if (e.key === "Escape") setMoreOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") closeMore(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [moreOpen]);
+  }, [moreOpen, closeMore]);
 
   useEffect(() => {
     localStorage.setItem("hadiflow_sidebar_collapsed", isCollapsed);
@@ -162,6 +174,14 @@ export default function AppShell({ children }) {
                 {initials(user?.full_name)}
               </div>
             )}
+            <button
+              className="sidebar__action-btn"
+              onClick={() => setPasswordOpen(true)}
+              title="تغییر رمز عبور"
+            >
+              <KeyRound size={16} strokeWidth={2} />
+              {!isCollapsed && <span>تغییر رمز عبور</span>}
+            </button>
             <button className="sidebar__action-btn" onClick={logout} title="خروج از حساب">
               <LogOut size={16} strokeWidth={2} />
               {!isCollapsed && <span>خروج از حساب</span>}
@@ -179,7 +199,7 @@ export default function AppShell({ children }) {
           {isAdmin && (
             <button
               className={`mobile-more-btn ${moreOpen ? "mobile-more-btn--open" : ""}`}
-              onClick={() => setMoreOpen((v) => !v)}
+              onClick={() => (moreOpen ? closeMore() : openMore())}
               aria-label="سایر بخش‌ها"
               aria-expanded={moreOpen}
               aria-controls="mobile-more-sheet"
@@ -188,6 +208,13 @@ export default function AppShell({ children }) {
             </button>
           )}
           <ThemeToggle />
+          <button
+            className="mobile-logout-btn"
+            onClick={() => setPasswordOpen(true)}
+            aria-label="تغییر رمز عبور"
+          >
+            <KeyRound size={18} strokeWidth={2} />
+          </button>
           <button className="mobile-logout-btn" onClick={logout} aria-label="خروج از حساب">
             <LogOut size={18} strokeWidth={2} />
           </button>
@@ -198,11 +225,11 @@ export default function AppShell({ children }) {
           bottom bar (the desktop rail is hidden below 800px). --- */}
       {isAdmin && moreOpen && (
         <>
-          <div className="mobile-more-backdrop" onClick={() => setMoreOpen(false)} aria-hidden="true" />
+          <div className="mobile-more-backdrop" onClick={closeMore} aria-hidden="true" />
           <div className="mobile-more-sheet" id="mobile-more-sheet" role="menu" aria-label="سایر بخش‌ها">
             <div className="mobile-more-sheet__head">
               <span>بخش‌های مدیریتی</span>
-              <button className="mobile-more-sheet__close" onClick={() => setMoreOpen(false)} aria-label="بستن منو">
+              <button className="mobile-more-sheet__close" onClick={closeMore} aria-label="بستن منو">
                 <X size={16} strokeWidth={2} />
               </button>
             </div>
@@ -264,6 +291,10 @@ export default function AppShell({ children }) {
         </header>
         <div className="page-transition-wrapper">{children}</div>
       </main>
+
+      {passwordOpen && (
+        <ChangePasswordModal onClose={() => setPasswordOpen(false)} />
+      )}
 
       <LiveRegion />
     </div>

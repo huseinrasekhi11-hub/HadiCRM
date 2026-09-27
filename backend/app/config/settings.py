@@ -61,6 +61,25 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # -----------------------------------------
+    # کوکیِ توکن تمدید (HttpOnly)
+    #
+    # توکن تمدید در کوکیِ HttpOnly نگه داشته می‌شود تا جاوااسکریپتِ
+    # مخرب (XSS) نتواند آن را بخواند (localStorage برای هیچ اسکریپتی
+    # قابل‌خواندن نیست، اما کوکیِ HttpOnly هست — نه). تنظیمات زیر برای
+    # استقرارهای مختلف قابل تنظیم‌اند:
+    #   * REFRESH_COOKIE_SAMESITE=none → وقتی فرانت‌اند و بک‌اند روی
+    #     دامنه‌های متفاوت‌اند (مثل panel.example.com + api.example.com)؛
+    #     در این حالت REFRESH_COOKIE_SECURE حتماً باید true باشد.
+    #   * REFRESH_COOKIE_SAMESITE=lax  → وقتی هر دو روی یک سایت‌اند (پیشنهاد:
+    #     فرانت‌اند را پشت یک reverse-proxy/rewrite روی همان دامنه سرو کنید).
+    # -----------------------------------------
+    REFRESH_COOKIE_NAME: str = "hadiflow_refresh"
+    REFRESH_COOKIE_PATH: str = "/auth"
+    REFRESH_COOKIE_SECURE: bool = True
+    REFRESH_COOKIE_SAMESITE: str = "none"
+    REFRESH_COOKIE_DOMAIN: str | None = None
+
+    # -----------------------------------------
     # زمان‌بند: هنگام اجرای تست‌ها یا چند نمونه‌ی همزمان از سرویس باید
     # خاموش باشد تا چند موتور هم‌زمان روی یک داده کار نکنند.
     # -----------------------------------------
@@ -73,6 +92,18 @@ class Settings(BaseSettings):
     LOGIN_RATE_WINDOW_SECONDS: int = 900
     LOGIN_MAX_FAILURES_PER_ACCOUNT: int = 5
     LOGIN_MAX_FAILURES_PER_IP: int = 30
+
+    # بودجه‌ی حدسِ «رمز فعلی» در اندپوینت تغییر رمز (همان مدلِ پنجره)
+    PASSWORD_CHANGE_MAX_FAILURES: int = 5
+    PASSWORD_CHANGE_WINDOW_SECONDS: int = 900
+
+    # انبارِ شمارنده‌های محدودسازِ ورود:
+    #   auto (پیش‌فرض) → دیتابیسِ مشترک + میانبرِ حافظه‌ای
+    #   db             → فقط دیتابیسِ مشترک
+    #   memory         → فقط حافظه‌ی همین فرایند (توصیه نمی‌شود مگر اینکه
+    #                    throttle اصلی در لبه/درگاه انجام شود؛ با چند
+    #                    worker/replica سقفِ مؤثر ضربدر تعداد نمونه‌ها می‌شود)
+    LOGIN_RATE_BACKEND: str = "auto"
 
     @field_validator("SECRET_KEY")
     @classmethod

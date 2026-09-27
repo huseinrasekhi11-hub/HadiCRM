@@ -43,9 +43,15 @@ export default function JalaliDatePicker({
     jm: parsed?.jm ?? today.jm,
   }));
 
-  useEffect(() => {
+  // The on-screen month follows the selected value. This is adjusted during
+  // render (React's documented "adjust state on prop change" pattern) rather
+  // than in an effect, which would commit one render showing the previous
+  // month before switching.
+  const [lastValue, setLastValue] = useState(value);
+  if (lastValue !== value) {
+    setLastValue(value);
     if (parsed) setView({ jy: parsed.jy, jm: parsed.jm });
-  }, [parsed?.jy, parsed?.jm]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   /* --- Dismiss on outside click or Escape --- */
   useEffect(() => {

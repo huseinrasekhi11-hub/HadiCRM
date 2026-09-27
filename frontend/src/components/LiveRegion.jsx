@@ -1,15 +1,5 @@
 import { useEffect, useState } from "react";
 
-/**
- * Programmatic screen-reader announcements.
- * Usage: announce("وظیفه انجام شد") from anywhere after a state change.
- */
-export function announce(message, politeness = "polite") {
-  window.dispatchEvent(
-    new CustomEvent("hadi:announce", { detail: { message, politeness } })
-  );
-}
-
 export default function LiveRegion() {
   const [polite, setPolite] = useState("");
   const [assertive, setAssertive] = useState("");

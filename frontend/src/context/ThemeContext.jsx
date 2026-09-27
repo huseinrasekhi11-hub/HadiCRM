@@ -1,6 +1,5 @@
-import { createContext, useContext, useEffect, useState, useMemo, useCallback } from "react";
-
-const ThemeContext = createContext(null);
+import { useEffect, useState, useMemo, useCallback } from "react";
+import { ThemeContext } from "../hooks/useTheme";
 
 const STORAGE_KEY = "hadiflow_theme";
 // Kept in sync with the --bg-app token for each theme, so the browser chrome
@@ -64,5 +63,3 @@ export function ThemeProvider({ children }) {
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
-
-export const useTheme = () => useContext(ThemeContext);

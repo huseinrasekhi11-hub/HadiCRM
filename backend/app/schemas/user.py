@@ -73,6 +73,15 @@ class UserUpdate(BaseModel):
 
 
 # -----------------------------
+# بازنشانی رمز توسط ادمین/مدیرعامل
+# -----------------------------
+class AdminPasswordResetRequest(BaseModel):
+    """رمزِ جدیدی که ادمین برای کاربر تعیین می‌کند (رمزِ موقت)."""
+
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+# -----------------------------
 # پاسخ API
 # -----------------------------
 class UserResponse(BaseModel):

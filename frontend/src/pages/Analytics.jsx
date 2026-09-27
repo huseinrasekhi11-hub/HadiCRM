@@ -7,15 +7,13 @@ import {
   getChartConversion, getChartReferralsReceived, getChartReferralsBetweenUsers,
   getChartSalesTrend, getChartTopProducts,
 } from "../api/charts";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 import { getUsers } from "../api/client";
 import AppShell from "../components/AppShell";
 import AccessDenied from "../components/AccessDenied";
 import { isAdminOnly } from "../permissions";
-import {
-  AreaChart, HBarChart, DonutChart,
-  fmtNum, fmtCompactRial, fmtRial,
-} from "../components/charts/Charts";
+import { AreaChart, HBarChart, DonutChart } from "../components/charts/Charts";
+import { fmtNum, fmtCompactRial, fmtRial } from "../utils/format";
 import "./Analytics.css";
 
 /* ---------- Panel wrapper (same convention as Dashboard.jsx) ---------- */
@@ -43,8 +41,6 @@ export default function Analytics() {
   const [trendGran, setTrendGran] = useState("day");
   const [charts, setCharts] = useState({});
   const [staffIds, setStaffIds] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
   /*
    * Per-person statistics describe the sales floor, so supervisory accounts
@@ -67,11 +63,22 @@ export default function Analytics() {
     return () => { cancelled = true; };
   }, [allowed]);
 
+  // Changing the granularity (or losing access) restarts the fetch from the
+  // loading state while rendering, instead of through an effect that would
+  // render the previous charts once more before resetting.
+  const loadKey = `${trendGran}|${allowed}`;
+  const [loadState, setLoadState] = useState(() => ({
+    key: loadKey,
+    loading: true,
+    error: "",
+  }));
+  if (loadState.key !== loadKey) {
+    setLoadState({ key: loadKey, loading: true, error: "" });
+  }
+
   useEffect(() => {
     if (!allowed) return;
     let cancelled = false;
-    setLoading(true);
-    setError("");
     Promise.all([
       getChartDailySales({ days: 30, calendar: "jalali" }).catch(() => null),
       getChartSalesByUser().catch(() => null),
@@ -86,10 +93,12 @@ export default function Analytics() {
         if (cancelled) return;
         setCharts({ dailySales, salesByUser, leadsByUser, conversion, referralsReceived, referralsBetween, salesTrend, topProducts });
       })
-      .catch(() => { if (!cancelled) setError("دریافت نمودارها با خطا مواجه شد."); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .catch(() => { if (!cancelled) setLoadState((s) => ({ ...s, error: "دریافت نمودارها با خطا مواجه شد.", loading: false })); })
+      .finally(() => { if (!cancelled) setLoadState((s) => ({ ...s, loading: false })); });
     return () => { cancelled = true; };
-  }, [trendGran, allowed]);
+  }, [trendGran, allowed, loadKey]);
+
+  const { loading, error } = loadState;
 
   if (!allowed) {
     return (
