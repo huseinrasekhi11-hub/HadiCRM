@@ -311,4 +311,10 @@ def test_migration_graph_has_single_head():
 
     heads = [rev for rev in revisions if rev not in downs]
     assert len(heads) == 1, f"expected exactly one migration head, got {heads}"
-    assert heads[0] == "d2e6b4a8c1f5", "head should be the mobile_normalized migration"
+    # NOTE: keep this in sync when a new migration is added — the point of
+    # the assertion is that the graph stays *linear*, so exactly one
+    # revision is expected to be nobody's `down_revision`.
+    assert heads[0] == "e3f1c9b7d4a2", (
+        "head should be the login_rate_events migration (update this test "
+        f"when a newer revision lands); got {heads[0]}"
+    )

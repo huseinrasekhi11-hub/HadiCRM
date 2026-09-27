@@ -488,6 +488,23 @@ def cleanup_expired_refresh_sessions():
         db.close()
 
 
+@single_instance("login_rate_event_cleanup")
+def cleanup_login_rate_events():
+    """
+    نگهداری: پاک‌سازیِ رویدادهای محدودسازِ ورود که از پنجره خارج شده‌اند
+    تا جدول login_rate_events (بودجه‌ی مشترکِ brute-force) رشد بی‌پایان
+    نکند — مخصوصاً روی استقرارهایی که ترافیکِ لاگینِ ناموفقِ کمی دارند و
+    پاک‌سازیِ ضمنیِ داخلِ record به‌ندرت اتفاق می‌افتد.
+    """
+    app_logger.info("[Scheduler] login rate-event cleanup triggered.")
+    from app.core.rate_limit import cleanup_login_rate_events as _cleanup
+
+    try:
+        _cleanup()
+    except Exception as exc:  # noqa: BLE001
+        app_logger.exception(f"[Scheduler] login rate-event cleanup failed: {exc}")
+
+
 def start_scheduler():
     scheduler = BackgroundScheduler()
 
@@ -513,6 +530,9 @@ def start_scheduler():
     scheduler.add_job(
         cleanup_expired_refresh_sessions, 'cron', hour=4, minute=0, timezone=jalali.TEHRAN_TZ
     )
+
+    # نگهداشت: پاک‌سازیِ ساعتیِ رویدادهای محدودسازِ ورودِ خارج از پنجره
+    scheduler.add_job(cleanup_login_rate_events, 'interval', hours=1)
 
     scheduler.start()
     return scheduler

@@ -74,6 +74,14 @@ class Settings(BaseSettings):
     LOGIN_MAX_FAILURES_PER_ACCOUNT: int = 5
     LOGIN_MAX_FAILURES_PER_IP: int = 30
 
+    # انبارِ شمارنده‌های محدودسازِ ورود:
+    #   auto (پیش‌فرض) → دیتابیسِ مشترک + میانبرِ حافظه‌ای
+    #   db             → فقط دیتابیسِ مشترک
+    #   memory         → فقط حافظه‌ی همین فرایند (توصیه نمی‌شود مگر اینکه
+    #                    throttle اصلی در لبه/درگاه انجام شود؛ با چند
+    #                    worker/replica سقفِ مؤثر ضربدر تعداد نمونه‌ها می‌شود)
+    LOGIN_RATE_BACKEND: str = "auto"
+
     @field_validator("SECRET_KEY")
     @classmethod
     def require_strong_secret_key(cls, v: str) -> str:
