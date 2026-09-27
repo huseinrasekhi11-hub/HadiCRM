@@ -119,7 +119,9 @@ def login(
     #    واقعاً آن را باطل کنند (پیش از این jti هرگز ذخیره نمی‌شد و
     #    توکن سرقت‌شده تا ۷ روز قابل replay بود).
     refresh_jti = uuid4().hex
-    access_token = create_access_token(data={"sub": user.mobile})
+    access_token = create_access_token(
+        data={"sub": user.mobile, "sv": user.session_version}
+    )
     refresh_token = create_refresh_token(data={"sub": user.mobile}, jti=refresh_jti)
     create_session_for_login(db, user, refresh_jti)
 
@@ -202,7 +204,9 @@ def refresh_access_token(
         clear_refresh_cookie(response, request)
         raise credentials_exception
 
-    new_access_token = create_access_token(data={"sub": user.mobile})
+    new_access_token = create_access_token(
+        data={"sub": user.mobile, "sv": user.session_version}
+    )
     new_refresh_token = create_refresh_token(
         data={"sub": user.mobile},
         jti=new_session.jti,
@@ -264,14 +268,25 @@ def change_my_password(
 
     report_password_change_success(request, current_user.mobile)
 
-    # اگر نشستِ جاری حفظ نشده (کلاینت توکنی ارسال نکرده)، کوکی هم پاک
-    # می‌شود تا کاربر با همان رمزِ قدیمی دوباره وارد نشود.
+    # session_version invalidates the old bearer token immediately. When
+    # the current refresh session is kept, issue a replacement access token
+    # for this browser tab; the refresh credential remains HttpOnly-only.
     if keep_jti is None:
         clear_refresh_cookie(response, request)
+
+    fresh_access_token = (
+        create_access_token(
+            data={"sub": current_user.mobile, "sv": current_user.session_version}
+        )
+        if keep_jti is not None
+        else None
+    )
 
     return {
         "message": "رمز عبور با موفقیت تغییر کرد.",
         "current_session_kept": keep_jti is not None,
+        "access_token": fresh_access_token,
+        "token_type": "bearer" if fresh_access_token else None,
     }
 
 
