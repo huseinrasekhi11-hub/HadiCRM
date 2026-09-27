@@ -268,3 +268,13 @@ def test_deleted_lead_can_still_be_found_after_restore_via_search():
 
     search = client.get("/leads/", params={"search": mobile}, headers=admin_headers)
     assert any(item["id"] == lead["id"] for item in search.json())
+
+
+def test_restore_rejects_when_mobile_is_now_used_by_another_active_lead():
+    headers = admin_headers()
+    deleted = make_lead(headers)
+    audit_id = client.post(f"/leads/{deleted['id']}/delete", headers=headers).json()["audit_id"]
+    replacement = make_lead(headers, mobile=deleted["mobile"])
+    assert replacement["id"] != deleted["id"]
+    response = client.post(f"/deleted-leads/{audit_id}/restore", headers=headers)
+    assert response.status_code == 409
