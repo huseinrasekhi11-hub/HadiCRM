@@ -260,6 +260,8 @@ def revoke_all_for_user(
     user_id: int,
     reason: str = REVOKE_REASON_USER_DISABLED,
     except_jti: str | None = None,
+    *,
+    commit: bool = True,
 ) -> int:
     """
     ابطال همه‌ی نشست‌های فعال یک کاربر (غیرفعال‌سازی/حذف/تغییر رمز).
@@ -279,7 +281,10 @@ def revoke_all_for_user(
         {"revoked_at": now, "revoked_reason": reason},
         synchronize_session=False,
     )
-    db.commit()
+    # Callers performing a larger security-sensitive state transition
+    # can defer commit so the whole transition is atomic.
+    if commit:
+        db.commit()
     if count:
         app_logger.info(
             f"[Auth] all refresh sessions revoked for user {user_id} ({reason}): {count}."
