@@ -19,6 +19,7 @@ from app.constants.roles import Roles
 from app.crud.audit_log import create_audit_log
 from app.crud.lead_deletion_audit import (
     get_deletion_audit_by_id,
+    LeadRestoreConflictError,
     get_deletion_audits,
     restore_deleted_lead,
 )
@@ -105,7 +106,13 @@ def restore_deleted_lead_route(
             detail="This lead has already been restored.",
         )
 
-    restored_lead = restore_deleted_lead(db, audit, current_user)
+    try:
+        restored_lead = restore_deleted_lead(db, audit, current_user)
+    except LeadRestoreConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
     if not restored_lead:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
