@@ -34,6 +34,13 @@ ALL_LEADS_ROLES = (
     Roles.SALES_MANAGER,
 )
 
+# Roles that can be the owner of a sales lead. SALES is intentionally
+# included even though it only has owner-scoped visibility.
+LEAD_ASSIGNABLE_ROLES = (
+    *ALL_LEADS_ROLES,
+    Roles.SALES,
+)
+
 # ---------------------------------------------------------------
 # نقش‌های محدود به سطح ممیزی/مدیریتی (حذف نامحسوس، نمودارها، تایم‌لاین مدیریتی)
 # ---------------------------------------------------------------
