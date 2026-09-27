@@ -69,6 +69,8 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
+    enforce_csrf_for_browser_request(request)
+
     # ۰. کنترل نرخ ورود (brute-force / credential stuffing).
     #    پیش از این هیچ throttle‌ای وجود نداشت و حدس رمز نامحدود بود.
     login_rate_guard(request, form_data.username)
