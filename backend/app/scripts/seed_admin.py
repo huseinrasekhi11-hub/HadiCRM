@@ -4,6 +4,7 @@ from app.auth.hashing import hash_password
 from app.constants.roles import Roles
 from app.crud.user import get_user_by_mobile
 from app.database.database import SessionLocal
+from app.models.user import User
 
 # SECURITY: never fall back to a known production credential. The Render
 # startup script calls this command automatically, so an omitted password
