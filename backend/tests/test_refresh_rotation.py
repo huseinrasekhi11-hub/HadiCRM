@@ -91,7 +91,8 @@ def test_refresh_rotates_tokens():
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["access_token"]
-    new_refresh = body["refresh_token"]
+    new_refresh = client.cookies.get(settings.REFRESH_COOKIE_NAME)
+    assert new_refresh
     assert new_refresh != old_refresh, "refresh token must rotate on every use"
 
     old_row = _session_row(old_jti)
