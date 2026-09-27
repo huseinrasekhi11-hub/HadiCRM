@@ -105,6 +105,10 @@ class Settings(BaseSettings):
     #                    worker/replica سقفِ مؤثر ضربدر تعداد نمونه‌ها می‌شود)
     LOGIN_RATE_BACKEND: str = "auto"
 
+    # Only trust X-Forwarded-For when the direct peer is an approved
+    # reverse proxy IP/CIDR. Empty means the header is ignored.
+    TRUSTED_PROXY_IPS: str = ""
+
     @field_validator("SECRET_KEY")
     @classmethod
     def require_strong_secret_key(cls, v: str) -> str:
