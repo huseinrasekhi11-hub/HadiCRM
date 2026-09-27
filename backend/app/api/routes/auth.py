@@ -194,7 +194,10 @@ def refresh_access_token(
         clear_refresh_cookie(response, request)
         raise credentials_exception
 
-    user = get_user_by_mobile(db, user_mobile)
+    # Bind the refresh session to the server-side user identity rather
+    # than the historical mobile string embedded in the JWT. This keeps a
+    # valid session usable after an administrator changes the mobile number.
+    user = db.query(User).filter(User.id == new_session.user_id).first()
     if not user or not user.is_active:
         clear_refresh_cookie(response, request)
         raise credentials_exception
