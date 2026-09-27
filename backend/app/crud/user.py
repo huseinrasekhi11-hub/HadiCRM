@@ -60,9 +60,17 @@ def get_users(db: Session):
 # (نه فقط ادمین/مدیرعامل) باید بتوانند از آن استفاده کنند
 # ----------------------------------
 def get_assignable_users(db: Session):
+    # Only sales-capable roles should ever appear in a lead-owner picker.
+    # Exposing every active role (customer, accounting, warehouse, ...)
+    # allowed a valid ID to be assigned to a user who has no lead scope.
+    from app.permissions.permission import LEAD_ASSIGNABLE_ROLES
+
     return (
         db.query(User)
-        .filter(User.is_active == True)
+        .filter(
+            User.is_active == True,
+            User.role.in_(LEAD_ASSIGNABLE_ROLES),
+        )
         .order_by(User.full_name)
         .all()
     )
@@ -103,18 +111,20 @@ def update_user(
     for key, value in data.items():
         setattr(db_user, key, value)
 
-    db.commit()
-    db.refresh(db_user)
-
-    # غیرفعال‌سازی باید نشست‌های فعالِ توکن تمدید را هم باطل کند؛
-    # وگرنه کاربرِ تعلیق‌شده تا ۷ روز می‌توانست با refresh tokenِ
-    # در دستش دسترسی جدید بسازد (بررسی is_active فقط در refresh مسیر
-    # را می‌بندد، ولی ابطال صریح، توکن سرقت‌شده را هم از کار می‌اندازد).
+    # Account deactivation + refresh-session revocation are a single
+    # transaction so a DB failure cannot leave a disabled account with
+    # still-valid refresh sessions.
     if was_active and not db_user.is_active:
         from app.services.auth_service import revoke_all_for_user
 
-        revoke_all_for_user(db, db_user.id, reason="user_disabled")
-
+        revoke_all_for_user(
+            db,
+            db_user.id,
+            reason="user_disabled",
+            commit=False,
+        )
+    db.commit()
+    db.refresh(db_user)
     return db_user
 
 
@@ -134,11 +144,16 @@ def delete_user(
     ظاهر نمی‌شود، اما تمام ارجاعات تاریخی سالم می‌مانند.
     """
     db_user.is_active = False
-    db.commit()
-    db.refresh(db_user)
 
-    # همه‌ی نشست‌های تمدیدِ فعال هم باطل می‌شوند (دلیل: user_disabled)
+    # Deactivation and refresh-session revocation must commit together.
     from app.services.auth_service import revoke_all_for_user
 
-    revoke_all_for_user(db, db_user.id, reason="user_disabled")
+    revoke_all_for_user(
+        db,
+        db_user.id,
+        reason="user_disabled",
+        commit=False,
+    )
+    db.commit()
+    db.refresh(db_user)
     return db_user
