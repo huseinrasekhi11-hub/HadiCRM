@@ -127,6 +127,14 @@ class User(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+
+    # Incremented whenever existing access tokens must be invalidated
+    # immediately (password change/reset or account deactivation).
+    session_version: Mapped[int] = mapped_column(
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
     # فیلدهای فاز ۱۱ و ۱۲ (مدیریت پرسنل و دسترسی پویا)
     #
     # توجه: پیش از این همین‌جا دوباره «is_active = Column(...)» تعریف شده
