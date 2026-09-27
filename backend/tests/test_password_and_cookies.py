@@ -202,6 +202,32 @@ def test_user_can_change_own_password():
     assert _login(mobile, "NewPass!2026").status_code == 200
 
 
+def test_password_change_invalidates_old_access_token_and_returns_a_fresh_one():
+    user = _create_user()
+    logged = _login(user["mobile"], "StrongPass!123")
+    assert logged.status_code == 200
+    old_access = logged.json()["access_token"]
+    headers = {"Authorization": f"Bearer {old_access}"}
+
+    changed = client.post(
+        "/auth/change-password",
+        headers=headers,
+        json={
+            "current_password": "StrongPass!123",
+            "new_password": "Fresh!2026",
+        },
+    )
+    assert changed.status_code == 200, changed.text
+    new_access = changed.json()["access_token"]
+    assert new_access and new_access != old_access
+
+    assert client.get("/auth/me", headers=headers).status_code == 401
+    assert client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {new_access}"},
+    ).status_code == 200
+
+
 def test_change_password_requires_the_current_password():
     user = _create_user()
     res = _login(user["mobile"], "StrongPass!123")
