@@ -38,7 +38,11 @@ from app.crud.task import create_task, get_lead_task_by_id, get_lead_tasks, upda
 from app.crud.user import get_user
 from app.database.database import get_db
 from app.models.user import User
-from app.permissions.permission import can_assign_any_lead, can_view_all_leads
+from app.permissions.permission import (
+    LEAD_ASSIGNABLE_ROLES,
+    can_assign_any_lead,
+    can_view_all_leads,
+)
 from app.schemas.activity import ACTION_TYPES_REQUIRING_FOLLOWUP, ActivityCreate, ActivityResponse
 from app.schemas.assignment_history import AssignmentHistoryResponse
 from app.schemas.attachment import AttachmentResponse
@@ -456,6 +460,11 @@ def assign_lead_to_user(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ارجاع به کاربر غیرفعال ممکن نیست.",
+        )
+    if owner.role not in LEAD_ASSIGNABLE_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ارجاع پرونده فقط به اعضای تیم فروش/مدیریت فروش مجاز است.",
         )
     assigned_lead = assign_lead(db, lead, owner, current_user, note=assign_data.note)
     create_audit_log(
