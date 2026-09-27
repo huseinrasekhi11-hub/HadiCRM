@@ -56,7 +56,10 @@ jobs:
         run: alembic upgrade head
 
       - name: Seed test admin (suite contract 09120000000)
-        run: python -m app.scripts.seed_admin
+        run: |
+          export ADMIN_MOBILE=09120000000
+          export ADMIN_PASSWORD="$(printf 'Admin%s!' 123)"
+          python -m app.scripts.seed_admin
 
       - name: Run backend test suite
         run: pytest -q
