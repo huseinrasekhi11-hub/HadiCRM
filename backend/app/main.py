@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.body_limit import RequestBodyLimitMiddleware
 from sqlalchemy.exc import DataError, IntegrityError
 
 from app.api.routes.admin_lead_history import router as admin_lead_history_router
@@ -63,6 +64,11 @@ app = FastAPI(
 # در Production حتماً این لیست را محدود به دامنه واقعی پنل کنید
 # ===========================================================
 app.add_middleware(
+    RequestBodyLimitMiddleware,
+    max_body_size=settings.MAX_REQUEST_BODY_BYTES,
+)
+
+app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
@@ -93,13 +99,23 @@ app.add_middleware(SecurityHeadersMiddleware)
 # ===========================================================
 @app.exception_handler(DataError)
 async def _data_error_handler(request: Request, exc: DataError):
-    app_logger.error(f"DataError on {request.method} {request.url.path}: {exc}")
+    orig = getattr(exc, "orig", None)
+    sqlstate = getattr(orig, "pgcode", None) or getattr(orig, "sqlstate", None)
+    app_logger.error(
+        f"DataError on {request.method} {request.url.path} "
+        f"(type={type(exc).__name__}, sqlstate={sqlstate or 'unknown'})"
+    )
     return JSONResponse(status_code=400, content={"detail": "داده‌ی ارسالی معتبر نیست."})
 
 
 @app.exception_handler(IntegrityError)
 async def _integrity_error_handler(request: Request, exc: IntegrityError):
-    app_logger.error(f"IntegrityError on {request.method} {request.url.path}: {exc}")
+    orig = getattr(exc, "orig", None)
+    sqlstate = getattr(orig, "pgcode", None) or getattr(orig, "sqlstate", None)
+    app_logger.error(
+        f"IntegrityError on {request.method} {request.url.path} "
+        f"(type={type(exc).__name__}, sqlstate={sqlstate or 'unknown'})"
+    )
     return JSONResponse(status_code=409, content={"detail": "رکورد تکراری یا نامعتبر است."})
 
 # ===========================================================
