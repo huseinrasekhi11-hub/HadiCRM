@@ -271,10 +271,23 @@ def test_deleted_lead_can_still_be_found_after_restore_via_search():
 
 
 def test_restore_rejects_when_mobile_is_now_used_by_another_active_lead():
-    headers = admin_headers()
-    deleted = make_lead(headers)
-    audit_id = client.post(f"/leads/{deleted['id']}/delete", headers=headers).json()["audit_id"]
-    replacement = make_lead(headers, mobile=deleted["mobile"])
-    assert replacement["id"] != deleted["id"]
-    response = client.post(f"/deleted-leads/{audit_id}/restore", headers=headers)
+    admin_headers = get_admin_headers()
+    mobile = unique_mobile()
+
+    original = create_lead(admin_headers, mobile, "Original Customer").json()
+    assert client.delete(f"/leads/{original['id']}", headers=admin_headers).status_code == 200
+
+    replacement = create_lead(admin_headers, mobile, "Replacement Customer")
+    assert replacement.status_code == 201
+
+    listing = client.get(
+        "/deleted-leads/",
+        params={"search": mobile, "include_restored": False},
+        headers=admin_headers,
+    ).json()
+    audit_id = next(item["id"] for item in listing if item["lead_id"] == original["id"])
+
+    response = client.post(f"/deleted-leads/{audit_id}/restore", headers=admin_headers)
     assert response.status_code == 409
+    assert client.get(f"/deleted-leads/{audit_id}", headers=admin_headers).json()["restored_at"] is None
+    assert client.get(f"/leads/{original['id']}", headers=admin_headers).status_code == 404
