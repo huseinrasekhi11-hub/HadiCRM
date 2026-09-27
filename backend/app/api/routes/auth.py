@@ -6,7 +6,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.auth.cookies import clear_refresh_cookie, set_refresh_cookie
-from app.auth.csrf import enforce_csrf_for_cookie_auth
+from app.auth.csrf import enforce_csrf_for_browser_request, enforce_csrf_for_cookie_auth
 from app.auth.dependencies import get_current_user
 from app.auth.hashing import hash_password, verify_password
 from app.auth.jwt_handler import (
