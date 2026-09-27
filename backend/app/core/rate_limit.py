@@ -113,14 +113,10 @@ class DatabaseRateLimiter:
     # هر چند تماس یک‌بار، ردیف‌های قدیمیِ «همه‌ی کلیدها» پاک می‌شوند؛
     # پاک‌سازیِ per-key در هر record انجام می‌شود و این فقط برای کلیدهای
     # رهاشده است (مثلاً IPهایی که دیگر هرگز تلاش نمی‌کنند).
-    _GLOBAL_PRUNE_EVERY = 25
-
     def __init__(self, session_factory, max_events: int, window_seconds: int):
         self._session_factory = session_factory
         self.max_events = max_events
         self.window_seconds = window_seconds
-        self._calls = 0
-        self._lock = threading.Lock()
 
     # -- internals -------------------------------------------------
     def _new_session(self):
@@ -162,6 +158,14 @@ class DatabaseRateLimiter:
             LoginRateEvent.created_at <= cutoff
         ).delete(synchronize_session=False)
 
+    def _lock_key(self, db, key: str) -> None:
+        """Serialize count+insert/reset for the same bucket on PostgreSQL."""
+        if db.get_bind().dialect.name == "postgresql":
+            db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": key},
+            )
+
     def _retry_after(self, oldest: datetime | None, now: datetime) -> int:
         if oldest is None:
             return 1
@@ -179,8 +183,11 @@ class DatabaseRateLimiter:
         try:
             count, oldest = self._count(db, key, cutoff)
         except SQLAlchemyError as exc:
-            app_logger.warning(f"[RateLimit] shared counter check failed ({exc})")
-            return True, 0  # دیتابیسِ پایین‌دست؛ لاگین خودش هم شکست می‌خورد
+            app_logger.exception(f"[RateLimit] shared counter check failed ({exc})")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Login protection is temporarily unavailable.",
+            ) from exc
         finally:
             db.close()
 
@@ -195,28 +202,35 @@ class DatabaseRateLimiter:
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(seconds=self.window_seconds)
 
-        with self._lock:
-            self._calls += 1
-            do_global_prune = self._calls % self._GLOBAL_PRUNE_EVERY == 0
-
         db = self._new_session()
         try:
+            # Serialize each bucket in PostgreSQL so concurrent workers cannot
+            # all observe the same pre-insert count and exceed the budget.
+            self._lock_key(db, key)
             self._prune_key(db, key, cutoff)
-            if do_global_prune:
-                self._prune_all(db, cutoff)
+            count, oldest = self._count(db, key, cutoff)
+            if count >= self.max_events:
+                db.rollback()
+                return False, self._retry_after(oldest, now)
+
             db.add(LoginRateEvent(event_key=key, created_at=now))
             db.flush()
             count, oldest = self._count(db, key, cutoff)
+            if count > self.max_events:
+                db.rollback()
+                return False, self._retry_after(oldest, now)
+
             db.commit()
         except SQLAlchemyError as exc:
             db.rollback()
-            app_logger.warning(f"[RateLimit] shared counter record failed ({exc})")
-            return True, 0
+            app_logger.exception(f"[RateLimit] shared counter record failed ({exc})")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Login protection is temporarily unavailable.",
+            ) from exc
         finally:
             db.close()
 
-        if count > self.max_events:
-            return False, self._retry_after(oldest, now)
         return True, 0
 
     def prune_expired(self) -> int:
@@ -311,20 +325,14 @@ class RateBudget:
 
     # -- operations -------------------------------------------------
     def check(self, key: str) -> tuple[bool, int]:
-        allowed, retry_after = self._memory.check(key)
-        if not allowed:
-            return allowed, retry_after
         if self._shared is not None:
             return self._shared.check(key)
-        return True, 0
+        return self._memory.check(key)
 
     def record(self, key: str) -> tuple[bool, int]:
-        self._memory.record(key)
         if self._shared is not None:
-            allowed, retry_after = self._shared.record(key)
-            if not allowed:
-                return allowed, retry_after
-        return True, 0
+            return self._shared.record(key)
+        return self._memory.record(key)
 
     def reset(self, key: str) -> None:
         self._memory.reset(key)
@@ -374,12 +382,48 @@ _TOO_MANY_REQUESTS_DETAIL = (
 )
 
 
+def _trusted_proxy_networks():
+    networks = []
+    for raw in settings.TRUSTED_PROXY_IPS.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(raw, strict=False))
+        except ValueError:
+            app_logger.warning(f"[RateLimit] invalid TRUSTED_PROXY_IPS entry ignored: {raw!r}")
+    return networks
+
+
 def _client_ip(request: Request) -> str:
-    """IP کلاینت؛ پشت reverse proxy به اولین مقدار X-Forwarded-For اعتماد می‌شود."""
+    """
+    Trust X-Forwarded-For only when the immediate peer is explicitly trusted.
+    Walk right-to-left so a client cannot prepend a forged address to evade
+    the per-IP brute-force budget.
+    """
+    peer = request.client.host if request.client else "unknown"
+    try:
+        peer_ip = ipaddress.ip_address(peer)
+    except ValueError:
+        peer_ip = None
+
+    networks = _trusted_proxy_networks()
+    if peer_ip is None or not any(peer_ip in network for network in networks):
+        return peer
+
     forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    if not forwarded:
+        return peer
+
+    for candidate in reversed([part.strip() for part in forwarded.split(",")]):
+        try:
+            candidate_ip = ipaddress.ip_address(candidate)
+        except ValueError:
+            continue
+        if not any(candidate_ip in network for network in networks):
+            return str(candidate_ip)
+
+    return peer
 
 
 def _identity_key(username: str | None) -> str:
