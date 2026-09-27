@@ -28,25 +28,46 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-def upgrade() -> None:
-    op.alter_column(
-        'leads', 'sale_amount',
-        existing_type=sa.Integer(), type_=sa.BigInteger(), existing_nullable=True,
-    )
-    op.alter_column(
-        'sale_line_items', 'amount',
-        existing_type=sa.Integer(), type_=sa.BigInteger(), existing_nullable=False,
-    )
-    op.alter_column(
-        'lead_deletion_audits', 'sale_amount',
-        existing_type=sa.Integer(), type_=sa.BigInteger(), existing_nullable=True,
-    )
+def _indexes(table: str) -> set[str]:
+    inspector = sa.inspect(op.get_bind())
+    return {idx["name"] for idx in inspector.get_indexes(table)}
 
-    op.create_index('ix_leads_owner_id', 'leads', ['owner_id'])
-    op.create_index('ix_leads_status', 'leads', ['status'])
-    op.create_index('ix_leads_created_at', 'leads', ['created_at'])
-    op.create_index('ix_audit_logs_created_at', 'audit_logs', ['created_at'])
-    op.create_index('ix_notifications_created_at', 'notifications', ['created_at'])
+
+def _columns(table: str):
+    inspector = sa.inspect(op.get_bind())
+    return {col["name"]: col for col in inspector.get_columns(table)}
+
+
+def upgrade() -> None:
+    # This migration can encounter legacy create_all databases. Guard every
+    # operation so stamping/upgrade does not skip the safety-critical BIGINT
+    # conversion or crash on indexes already present in the ORM schema.
+    for table, column in (
+        ("leads", "sale_amount"),
+        ("sale_line_items", "amount"),
+        ("lead_deletion_audits", "sale_amount"),
+    ):
+        info = _columns(table).get(column)
+        if info is None:
+            continue
+        if not isinstance(info["type"], sa.BigInteger):
+            op.alter_column(
+                table,
+                column,
+                existing_type=info["type"],
+                type_=sa.BigInteger(),
+                existing_nullable=info.get("nullable", True),
+            )
+
+    for index_name, table, columns in (
+        ('ix_leads_owner_id', 'leads', ['owner_id']),
+        ('ix_leads_status', 'leads', ['status']),
+        ('ix_leads_created_at', 'leads', ['created_at']),
+        ('ix_audit_logs_created_at', 'audit_logs', ['created_at']),
+        ('ix_notifications_created_at', 'notifications', ['created_at']),
+    ):
+        if index_name not in _indexes(table):
+            op.create_index(index_name, table, columns)
 
 
 def downgrade() -> None:
