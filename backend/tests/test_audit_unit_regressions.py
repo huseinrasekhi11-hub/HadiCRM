@@ -383,3 +383,26 @@ def test_login_sets_an_httponly_cookie():
     assert "HttpOnly" in cookie
     assert settings.REFRESH_COOKIE_NAME in cookie
     assert f"Path={settings.REFRESH_COOKIE_PATH}" in cookie
+
+
+def test_http_body_limit_rejects_oversized_requests():
+    from app.main import app
+    from fastapi.testclient import TestClient
+    response = TestClient(app).post("/", content=b"x" * (26 * 1024 * 1024))
+    assert response.status_code == 413
+
+
+def test_invoice_sensitive_mutations_reload_and_lock_the_lead():
+    import inspect
+    from app.crud import lead as lead_crud
+    assert "_lock_lead_for_mutation(db, lead.id)" in inspect.getsource(lead_crud.update_lead)
+    assert "_lock_lead_for_mutation(db, lead.id)" in inspect.getsource(lead_crud.update_lead_status)
+
+
+def test_final_factor_with_sale_items_is_committed_as_one_transaction():
+    import inspect
+    from app.api.routes import leads as leads_route
+    source = inspect.getsource(leads_route.change_lead_status)
+    assert "commit=not atomic_sale" in source
+    assert "commit=False" in source
+    assert "db.commit()" in source
