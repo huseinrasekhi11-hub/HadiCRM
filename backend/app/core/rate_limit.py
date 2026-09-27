@@ -1,6 +1,7 @@
 """
 ===========================================================
-محدودسازی نرخ ورود (brute-force / credential-stuffing control)
+محدودسازی نرخِ عملیاتِ حساسی که با حدس‌زدن قابل حمله‌اند
+(ورود = brute-force / credential-stuffing، و تغییر رمز)
 -----------------------------------------------------------
 پیش از این /auth/login هیچ throttle‌ای نداشت: حدس رمز نامحدود بود و
 Argon2 فقط هزینه‌ی هر تلاش را بالا می‌برد، نه تعدادشان را.
@@ -15,6 +16,8 @@ Argon2 فقط هزینه‌ی هر تلاش را بالا می‌برد، نه �
   * ورود موفق، شمارنده‌ی همان (IP+شماره) را صفر می‌کند؛ بودجه‌ی IP
     عمداً صفر نمی‌شود تا مهاجم نتواند با یک حساب معتبر، بودجه‌ی
     حدس‌زدنِ بقیه‌ی شماره‌ها را بازیابی کند.
+  * همین مدل برای «تغییر رمزِ عبور» هم اعمال می‌شود (حدسِ رمزِ فعلی
+    روی یک نشستِ لاگین‌شده هم باید محدود باشد).
 
 دو انبار وجود دارد (انتخاب با LOGIN_RATE_BACKEND):
 
@@ -267,68 +270,104 @@ class DatabaseRateLimiter:
             db.close()
 
 
-def _build_shared_counters():
+class RateBudget:
     """
-    ساخت شمارنده‌های مشترک طبق تنظیمات.
+    یک بودجه‌ی نام‌دار (مثلاً «ورودِ ناموفق برای این شماره») که تصمیم را
+    ابتدا با شمارنده‌ی ارزانِ داخل فرایند و سپس با انبارِ مشترک می‌گیرد.
 
-    "memory" → فقط حافظه (بودجه‌ی مستقل برای هر فرایند)
-    "db"     → فقط دیتابیس
-    "auto"   → دیتابیس (مشترک) + حافظه به‌عنوان میانبرِ ارزان (پیش‌فرض)
+    نکته‌ی مهم: انبارِ مشترک «مرجع» است. اگر مقدارِ
+    LOGIN_RATE_BACKEND=memory تنظیم شود، فقط حافظه استفاده می‌شود و سقفِ
+    مؤثر به تعداد فرایندها ضرب خواهد شد (برای توسعه/تست یا وقتی throttle
+    در لبه انجام می‌شود).
     """
+
+    def __init__(self, name: str, max_events: int, window_seconds: int, use_shared: bool):
+        self.name = name
+        self.max_events = max_events
+        self.window_seconds = window_seconds
+        self._memory = SlidingWindowCounter(max_events, window_seconds)
+        self._shared = (
+            DatabaseRateLimiter(
+                session_factory=None,
+                max_events=max_events,
+                window_seconds=window_seconds,
+            )
+            if use_shared
+            else None
+        )
+
+    # -- introspection (تست‌ها) -------------------------------------
+    @property
+    def shared(self) -> DatabaseRateLimiter | None:
+        return self._shared
+
+    @property
+    def memory(self) -> SlidingWindowCounter:
+        return self._memory
+
+    def clear_memory_only(self) -> None:
+        """پاک‌سازیِ فقط شمارنده‌ی حافظه‌ای (شبیه‌سازیِ یک فرایندِ تازه)."""
+        self._memory.clear()
+
+    # -- operations -------------------------------------------------
+    def check(self, key: str) -> tuple[bool, int]:
+        allowed, retry_after = self._memory.check(key)
+        if not allowed:
+            return allowed, retry_after
+        if self._shared is not None:
+            return self._shared.check(key)
+        return True, 0
+
+    def record(self, key: str) -> tuple[bool, int]:
+        self._memory.record(key)
+        if self._shared is not None:
+            allowed, retry_after = self._shared.record(key)
+            if not allowed:
+                return allowed, retry_after
+        return True, 0
+
+    def reset(self, key: str) -> None:
+        self._memory.reset(key)
+        if self._shared is not None:
+            self._shared.reset(key)
+
+    def clear(self) -> None:
+        self._memory.clear()
+        if self._shared is not None:
+            self._shared.clear()
+
+
+def _use_shared_backend() -> bool:
     backend = (settings.LOGIN_RATE_BACKEND or "auto").strip().lower()
-
-    memory_account = SlidingWindowCounter(
-        max_events=settings.LOGIN_MAX_FAILURES_PER_ACCOUNT,
-        window_seconds=settings.LOGIN_RATE_WINDOW_SECONDS,
-    )
-    memory_ip = SlidingWindowCounter(
-        max_events=settings.LOGIN_MAX_FAILURES_PER_IP,
-        window_seconds=settings.LOGIN_RATE_WINDOW_SECONDS,
-    )
-
-    shared_account = None
-    shared_ip = None
+    if backend in ("memory", "inmemory", "in-memory", "local", "off", "none"):
+        return False
     if backend in ("auto", "db", "database", "shared"):
-        shared_account = DatabaseRateLimiter(
-            session_factory=None,
-            max_events=settings.LOGIN_MAX_FAILURES_PER_ACCOUNT,
-            window_seconds=settings.LOGIN_RATE_WINDOW_SECONDS,
-        )
-        shared_ip = DatabaseRateLimiter(
-            session_factory=None,
-            max_events=settings.LOGIN_MAX_FAILURES_PER_IP,
-            window_seconds=settings.LOGIN_RATE_WINDOW_SECONDS,
-        )
-    elif backend not in ("memory", "inmemory", "in-memory", "local"):
-        app_logger.warning(
-            f"[RateLimit] unknown LOGIN_RATE_BACKEND={backend!r}; "
-            "falling back to the shared database backend."
-        )
-        shared_account = DatabaseRateLimiter(
-            session_factory=None,
-            max_events=settings.LOGIN_MAX_FAILURES_PER_ACCOUNT,
-            window_seconds=settings.LOGIN_RATE_WINDOW_SECONDS,
-        )
-        shared_ip = DatabaseRateLimiter(
-            session_factory=None,
-            max_events=settings.LOGIN_MAX_FAILURES_PER_IP,
-            window_seconds=settings.LOGIN_RATE_WINDOW_SECONDS,
-        )
-
-    return {
-        "memory_account": memory_account,
-        "memory_ip": memory_ip,
-        "shared_account": shared_account,
-        "shared_ip": shared_ip,
-    }
+        return True
+    app_logger.warning(
+        f"[RateLimit] unknown LOGIN_RATE_BACKEND={backend!r}; "
+        "using the shared database backend."
+    )
+    return True
 
 
-_COUNTERS = _build_shared_counters()
+_USE_SHARED = _use_shared_backend()
+_WINDOW = settings.LOGIN_RATE_WINDOW_SECONDS
 
-_FAILURE_PER_ACCOUNT = _COUNTERS["memory_account"]
-_FAILURE_PER_IP = _COUNTERS["memory_ip"]
-_SHARED_PER_ACCOUNT = _COUNTERS["shared_account"]
-_SHARED_PER_IP = _COUNTERS["shared_ip"]
+# بودجه‌ی ورود: (IP + شماره) و (IP)
+_LOGIN_ACCOUNT = RateBudget(
+    "login-account", settings.LOGIN_MAX_FAILURES_PER_ACCOUNT, _WINDOW, _USE_SHARED
+)
+_LOGIN_IP = RateBudget(
+    "login-ip", settings.LOGIN_MAX_FAILURES_PER_IP, _WINDOW, _USE_SHARED
+)
+
+# بودجه‌ی تغییر رمز: حدسِ «رمز فعلی» روی نشستِ لاگین‌شده هم باید محدود باشد
+_PASSWORD_ACCOUNT = RateBudget(
+    "password-change",
+    settings.PASSWORD_CHANGE_MAX_FAILURES,
+    settings.PASSWORD_CHANGE_WINDOW_SECONDS,
+    _USE_SHARED,
+)
 
 _TOO_MANY_REQUESTS_DETAIL = (
     "تلاش‌های ناموفق بیش از حد مجاز؛ لطفاً کمی بعد دوباره تلاش کنید."
@@ -349,68 +388,80 @@ def _identity_key(username: str | None) -> str:
     return normalized or (username or "").strip().lower()
 
 
+def _too_many_requests(retry_after: int) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=_TOO_MANY_REQUESTS_DETAIL,
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+# -----------------------------------------------------------
+# ورود (login)
+# -----------------------------------------------------------
 def clear_login_counters() -> None:
     """فقط برای تست‌ها: پاک‌سازی کامل شمارنده‌ها (حافظه و دیتابیس)."""
-    _FAILURE_PER_ACCOUNT.clear()
-    _FAILURE_PER_IP.clear()
-    if _SHARED_PER_ACCOUNT is not None:
-        _SHARED_PER_ACCOUNT.clear()
-    if _SHARED_PER_IP is not None:
-        _SHARED_PER_IP.clear()
+    _LOGIN_ACCOUNT.clear()
+    _LOGIN_IP.clear()
 
 
 def login_rate_guard(request: Request, username: str | None) -> None:
     """پیش از پردازش لاگین: اگر بودجه تمام شده، 429 برگردان."""
     ip = _client_ip(request)
-    ip_key = f"ip:{ip}"
-    account_key = f"acct:{ip}|{_identity_key(username)}"
 
-    # ۱) میانبرِ ارزانِ داخل فرایند (بدون رفت‌وبرگشتِ دیتابیس)
-    allowed, retry_after = _FAILURE_PER_IP.check(ip_key)
+    # ۱) بودجه‌ی IP (ضدِ credential stuffing روی شماره‌های مختلف)
+    allowed, retry_after = _LOGIN_IP.check(f"ip:{ip}")
     if not allowed:
         raise _too_many_requests(retry_after)
 
-    allowed, retry_after = _FAILURE_PER_ACCOUNT.check(account_key)
+    # ۲) بودجه‌ی (IP + حساب) — تصمیم نهایی با انبارِ مشترک است
+    allowed, retry_after = _LOGIN_ACCOUNT.check(
+        f"acct:{ip}|{_identity_key(username)}"
+    )
     if not allowed:
         raise _too_many_requests(retry_after)
-
-    # ۲) تصمیمِ نهایی با انبارِ مشترک: بودجه در همه‌ی workerها/replicaها
-    #    یکی است، نه به تعدادِ فرایندها ضرب‌شده.
-    if _SHARED_PER_IP is not None:
-        allowed, retry_after = _SHARED_PER_IP.check(ip_key)
-        if not allowed:
-            raise _too_many_requests(retry_after)
-
-    if _SHARED_PER_ACCOUNT is not None:
-        allowed, retry_after = _SHARED_PER_ACCOUNT.check(account_key)
-        if not allowed:
-            raise _too_many_requests(retry_after)
 
 
 def report_login_failure(request: Request, username: str | None) -> None:
     """ثبت یک تلاش ناموفق در شمارنده‌های حافظه‌ای و مشترک."""
     ip = _client_ip(request)
-    ip_key = f"ip:{ip}"
-    account_key = f"acct:{ip}|{_identity_key(username)}"
-
-    _FAILURE_PER_IP.record(ip_key)
-    _FAILURE_PER_ACCOUNT.record(account_key)
-
-    if _SHARED_PER_IP is not None:
-        _SHARED_PER_IP.record(ip_key)
-    if _SHARED_PER_ACCOUNT is not None:
-        _SHARED_PER_ACCOUNT.record(account_key)
+    _LOGIN_IP.record(f"ip:{ip}")
+    _LOGIN_ACCOUNT.record(f"acct:{ip}|{_identity_key(username)}")
 
 
 def report_login_success(request: Request, username: str | None) -> None:
     """ورود موفق: بودجه‌ی همان (IP+شماره) بازمی‌گردد؛ بودجه‌ی IP نه."""
-    account_key = f"acct:{_client_ip(request)}|{_identity_key(username)}"
-
-    _FAILURE_PER_ACCOUNT.reset(account_key)
-    if _SHARED_PER_ACCOUNT is not None:
-        _SHARED_PER_ACCOUNT.reset(account_key)
+    _LOGIN_ACCOUNT.reset(f"acct:{_client_ip(request)}|{_identity_key(username)}")
 
 
+# -----------------------------------------------------------
+# تغییر رمز عبور (password change)
+# -----------------------------------------------------------
+def clear_password_change_counters() -> None:
+    """فقط برای تست‌ها."""
+    _PASSWORD_ACCOUNT.clear()
+
+
+def password_change_guard(request: Request, username: str | None) -> None:
+    """پیش از تغییر رمز: اگر بودجه‌ی حدسِ «رمز فعلی» تمام شده، 429."""
+    allowed, retry_after = _PASSWORD_ACCOUNT.check(
+        f"pwd:{_client_ip(request)}|{_identity_key(username)}"
+    )
+    if not allowed:
+        raise _too_many_requests(retry_after)
+
+
+def report_password_change_failure(request: Request, username: str | None) -> None:
+    _PASSWORD_ACCOUNT.record(f"pwd:{_client_ip(request)}|{_identity_key(username)}")
+
+
+def report_password_change_success(request: Request, username: str | None) -> None:
+    _PASSWORD_ACCOUNT.reset(f"pwd:{_client_ip(request)}|{_identity_key(username)}")
+
+
+# -----------------------------------------------------------
+# نگهداری
+# -----------------------------------------------------------
 def cleanup_login_rate_events(retention_seconds: int | None = None) -> int:
     """
     نگهداری: حذفِ رویدادهای محدودسازِ خارج از پنجره تا جدولِ
@@ -425,11 +476,3 @@ def cleanup_login_rate_events(retention_seconds: int | None = None) -> int:
     if removed:
         app_logger.info(f"[RateLimit] pruned {removed} expired login-rate event(s).")
     return removed
-
-
-def _too_many_requests(retry_after: int) -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-        detail=_TOO_MANY_REQUESTS_DETAIL,
-        headers={"Retry-After": str(retry_after)},
-    )

@@ -255,19 +255,29 @@ def revoke_by_token_payload(db: Session, payload: dict, reason: str) -> bool:
     return revoke_session(db, jti, reason=reason)
 
 
-def revoke_all_for_user(db: Session, user_id: int, reason: str = REVOKE_REASON_USER_DISABLED) -> int:
-    """ابطال همه‌ی نشست‌های فعال یک کاربر (غیرفعال‌سازی/حذف)."""
+def revoke_all_for_user(
+    db: Session,
+    user_id: int,
+    reason: str = REVOKE_REASON_USER_DISABLED,
+    except_jti: str | None = None,
+) -> int:
+    """
+    ابطال همه‌ی نشست‌های فعال یک کاربر (غیرفعال‌سازی/حذف/تغییر رمز).
+
+    except_jti: نشستی که باید زنده بماند — مثلاً دستگاهی که خودش رمز را
+    تغییر داده است؛ بقیه قطع می‌شوند تا توکن‌های صادر‌شده با رمزِ قدیمی
+    (یا سرقت‌شده) از کار بیفتند.
+    """
     now = _utcnow()
-    count = (
-        db.query(RefreshSession)
-        .filter(
-            RefreshSession.user_id == user_id,
-            RefreshSession.revoked_at.is_(None),
-        )
-        .update(
-            {"revoked_at": now, "revoked_reason": reason},
-            synchronize_session=False,
-        )
+    query = db.query(RefreshSession).filter(
+        RefreshSession.user_id == user_id,
+        RefreshSession.revoked_at.is_(None),
+    )
+    if except_jti:
+        query = query.filter(RefreshSession.jti != except_jti)
+    count = query.update(
+        {"revoked_at": now, "revoked_reason": reason},
+        synchronize_session=False,
     )
     db.commit()
     if count:

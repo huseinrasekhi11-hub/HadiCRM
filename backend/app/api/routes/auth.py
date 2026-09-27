@@ -1,9 +1,12 @@
 from datetime import datetime, timezone
+from uuid import uuid4
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
+from app.auth.cookies import clear_refresh_cookie, set_refresh_cookie
+from app.auth.csrf import enforce_csrf_for_cookie_auth
 from app.auth.dependencies import get_current_user
 from app.auth.hashing import hash_password, verify_password
 from app.auth.jwt_handler import (
@@ -12,11 +15,19 @@ from app.auth.jwt_handler import (
     create_refresh_token,
     verify_token,
 )
-from app.core.rate_limit import login_rate_guard, report_login_failure, report_login_success
+from app.config.settings import settings
+from app.core.rate_limit import (
+    login_rate_guard,
+    password_change_guard,
+    report_login_failure,
+    report_login_success,
+    report_password_change_failure,
+    report_password_change_success,
+)
 from app.crud.user import get_user_by_mobile
 from app.database.database import get_db
 from app.models.user import User
-from app.schemas.auth import LogoutRequest
+from app.schemas.auth import ChangePasswordRequest, LogoutRequest
 from app.schemas.user import UserResponse
 from app.services.auth_service import (
     RefreshTokenError,
@@ -24,6 +35,7 @@ from app.services.auth_service import (
     revoke_by_token_payload,
     rotate_session,
 )
+from app.services.password_service import PasswordError, change_password
 
 router = APIRouter(
     prefix="/auth",
@@ -35,9 +47,25 @@ router = APIRouter(
 _DUMMY_PASSWORD_HASH = hash_password("dummy-password-for-timing-equalization-only")
 
 
+def _refresh_token_from_request(request: Request, body_token: str | None) -> tuple[str | None, bool]:
+    """
+    توکن تمدید را از بدنه (کلاینت‌های قدیمی/غیرمرورگری) یا از کوکیِ
+    HttpOnly (مسیرِ پیش‌فرضِ مرورگر) می‌خواند.
+
+    خروجی: (توکن یا None، آیا از کوکی آمده است)
+    """
+    if body_token:
+        return body_token, False
+    cookie_token = request.cookies.get(settings.REFRESH_COOKIE_NAME)
+    if cookie_token:
+        return cookie_token, True
+    return None, False
+
+
 @router.post("/login")
 def login(
     request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
@@ -90,12 +118,15 @@ def login(
     #    شناخته می‌شود؛ logout/غیرفعال‌سازی/تشخیص replay می‌توانند
     #    واقعاً آن را باطل کنند (پیش از این jti هرگز ذخیره نمی‌شد و
     #    توکن سرقت‌شده تا ۷ روز قابل replay بود).
-    from uuid import uuid4
-
     refresh_jti = uuid4().hex
     access_token = create_access_token(data={"sub": user.mobile})
     refresh_token = create_refresh_token(data={"sub": user.mobile}, jti=refresh_jti)
     create_session_for_login(db, user, refresh_jti)
+
+    # توکن تمدید در کوکیِ HttpOnly هم نصب می‌شود: مرورگر آن را خودکار
+    # می‌فرستد و جاوااسکریپت به آن دسترسی ندارد (XSS نمی‌تواند بدزدد).
+    # مقدارِ درونِ بدنه برای کلاینت‌های غیرمرورگری باقی مانده است.
+    set_refresh_cookie(response, refresh_token)
 
     return {
         "access_token": access_token,
@@ -111,19 +142,27 @@ def get_me(current_user: User = Depends(get_current_user)):
 
 @router.post("/refresh-token", summary="تمدید توکن دسترسی")
 def refresh_access_token(
-    refresh_token: str = Body(..., embed=True),
+    request: Request,
+    response: Response,
+    refresh_token: str | None = Body(default=None, embed=True),
     db: Session = Depends(get_db),
 ):
     """
     دریافت Refresh Token و صدور یک Access Token جدید
     بدون نیاز به نام کاربری و رمز عبور.
 
+    توکن تمدید از بدنه (سازگاری با کلاینت‌های قدیمی/غیرمرورگری) یا از
+    کوکیِ HttpOnly خوانده می‌شود؛ در حالتِ دوم بررسیِ CSRF هم اعمال
+    می‌شود (app/auth/csrf.py).
+
     اصلاحات امنیتی نسبت به نسخه‌ی قبل:
       * توکن باید واقعاً از نوع refresh باشد (نه access)؛
       * وجود و فعال‌بودن کاربر دوباره از دیتابیس بررسی می‌شود، تا
         کاربر حذف/غیرفعال‌شده نتواند نشست خود را تمدید کند؛
       * توکن در بدنه‌ی درخواست گرفته می‌شود نه در query string،
-        چون query string در لاگ‌های وب‌سرور ذخیره می‌شود.
+        چون query string در لاگ‌های وب‌سرور ذخیره می‌شود؛
+      * چرخشِ نشست به‌صورت اتمیک (قفلِ ردیف + UPDATE شرطی) انجام
+        می‌شود تا دو درخواستِ هم‌زمان نتوانند یک توکن را دوبار خرج کنند.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -131,8 +170,15 @@ def refresh_access_token(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    payload = verify_token(refresh_token, expected_type=TOKEN_TYPE_REFRESH)
+    token, from_cookie = _refresh_token_from_request(request, refresh_token)
+    if not token:
+        raise credentials_exception
+    if from_cookie:
+        enforce_csrf_for_cookie_auth(request)
+
+    payload = verify_token(token, expected_type=TOKEN_TYPE_REFRESH)
     if not payload:
+        clear_refresh_cookie(response)
         raise credentials_exception
 
     user_mobile = payload.get("sub")
@@ -146,10 +192,12 @@ def refresh_access_token(
     try:
         _old_session, new_session = rotate_session(db, payload["jti"])
     except RefreshTokenError:
+        clear_refresh_cookie(response)
         raise credentials_exception
 
     user = get_user_by_mobile(db, user_mobile)
     if not user or not user.is_active:
+        clear_refresh_cookie(response)
         raise credentials_exception
 
     new_access_token = create_access_token(data={"sub": user.mobile})
@@ -157,6 +205,7 @@ def refresh_access_token(
         data={"sub": user.mobile},
         jti=new_session.jti,
     )
+    set_refresh_cookie(response, new_refresh_token)
 
     return {
         "access_token": new_access_token,
@@ -166,9 +215,67 @@ def refresh_access_token(
     }
 
 
+@router.post("/change-password", summary="تغییر رمز عبور توسط خود کاربر")
+def change_my_password(
+    request: Request,
+    response: Response,
+    body: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    تغییر رمزِ حسابِ لاگین‌شده.
+
+    نیازمندِ «رمز فعلی» است تا نشست/توکنِ دزدیده‌شده نتواند حساب را با
+    تغییرِ رمز تصاحب کند. بعد از تغییر، همه‌ی نشست‌های دیگرِ این کاربر
+    (دستگاه‌ها و توکن‌های تمدیدِ صادر‌شده) باطل می‌شوند؛ نشستِ همین
+    درخواست در صورتِ ارائه‌ی توکن تمدید (کوکی یا بدنه) حفظ می‌شود.
+    """
+    # حدسِ «رمز فعلی» هم باید محدود باشد؛ در غیر این صورت این اندپوینت
+    # یک مسیرِ نامحدود برای brute-forceِ رمز روی یک نشستِ دزدیده‌شده بود.
+    password_change_guard(request, current_user.mobile)
+
+    keep_jti = None
+    body_token = body.refresh_token
+    token, _from_cookie = _refresh_token_from_request(request, body_token)
+    if token:
+        payload = verify_token(token, expected_type=TOKEN_TYPE_REFRESH)
+        if payload and payload.get("jti"):
+            keep_jti = payload["jti"]
+
+    try:
+        change_password(
+            db,
+            current_user,
+            current_password=body.current_password,
+            new_password=body.new_password,
+            keep_jti=keep_jti,
+        )
+    except PasswordError as exc:
+        report_password_change_failure(request, current_user.mobile)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.message,
+        ) from exc
+
+    report_password_change_success(request, current_user.mobile)
+
+    # اگر نشستِ جاری حفظ نشده (کلاینت توکنی ارسال نکرده)، کوکی هم پاک
+    # می‌شود تا کاربر با همان رمزِ قدیمی دوباره وارد نشود.
+    if keep_jti is None:
+        clear_refresh_cookie(response)
+
+    return {
+        "message": "رمز عبور با موفقیت تغییر کرد.",
+        "current_session_kept": keep_jti is not None,
+    }
+
+
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(
-    body: LogoutRequest,
+    request: Request,
+    response: Response,
+    body: LogoutRequest | None = None,
     db: Session = Depends(get_db),
 ):
     """
@@ -179,7 +286,14 @@ def logout(
     پاسخ همیشه ۲۰۴ است — حتی برای توکن نامعتبر/قبلاً باطل — تا
     این اندپوینت به ابزاری برای کاوش وضعیت نشست‌ها تبدیل نشود.
     """
-    payload = verify_token(body.refresh_token, expected_type=TOKEN_TYPE_REFRESH)
-    if payload:
-        revoke_by_token_payload(db, payload, reason="logout")
+    body_token = body.refresh_token if body else None
+    token, from_cookie = _refresh_token_from_request(request, body_token)
+    if token and from_cookie:
+        enforce_csrf_for_cookie_auth(request)
+    if token:
+        payload = verify_token(token, expected_type=TOKEN_TYPE_REFRESH)
+        if payload:
+            revoke_by_token_payload(db, payload, reason="logout")
+
+    clear_refresh_cookie(response)
     return None

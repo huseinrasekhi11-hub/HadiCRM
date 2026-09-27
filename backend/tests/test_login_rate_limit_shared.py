@@ -114,8 +114,8 @@ def test_clearing_process_memory_does_not_restore_the_budget():
 
         # شبیه‌سازیِ «فرایند/ریپلیکای تازه»: شمارنده‌های حافظه‌ای خالی‌اند،
         # اما بودجه‌ی مشترک هنوز مصرف شده است.
-        rate_limit._FAILURE_PER_ACCOUNT.clear()
-        rate_limit._FAILURE_PER_IP.clear()
+        rate_limit._LOGIN_ACCOUNT.clear_memory_only()
+        rate_limit._LOGIN_IP.clear_memory_only()
 
         res = _login(mobile, "wrong-password")
         assert res.status_code == 429, (
