@@ -80,8 +80,10 @@ def verify_token(token: str, expected_type: str | None = TOKEN_TYPE_ACCESS):
     اعتبارسنجی Token.
 
     اگر expected_type داده شود، توکنی که نوع دیگری دارد رد می‌شود.
-    توکن‌های قدیمیِ بدون ادعای «type» برای دوره‌ی گذار به‌عنوان
-    access پذیرفته می‌شوند تا نشست‌های باز کاربران قطع نشود.
+    برای جلوگیری از بازگرداندن باگ قدیمیِ «refresh-as-access»، همه‌ی
+    توکن‌های معتبر باید صریحاً ادعای type داشته باشند. توکن‌های قدیمیِ
+    بدون type عمداً رد می‌شوند و کاربرانِ نشست‌های قبل از این تغییر
+    باید دوباره وارد شوند. این یک مهاجرتِ امنیتیِ اجباری است.
     """
     try:
         payload = jwt.decode(
@@ -93,7 +95,7 @@ def verify_token(token: str, expected_type: str | None = TOKEN_TYPE_ACCESS):
         return None
 
     if expected_type is not None:
-        token_type = payload.get("type", TOKEN_TYPE_ACCESS)
+        token_type = payload.get("type")
         if token_type != expected_type:
             return None
 
