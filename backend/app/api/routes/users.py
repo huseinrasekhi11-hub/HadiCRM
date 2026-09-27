@@ -192,7 +192,10 @@ def create_new_user(
             detail="Mobile already exists",
         )
 
-    return create_user(db, user)
+    try:
+        return create_user(db, user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ----------------------------------------
@@ -304,7 +307,10 @@ def edit_user(
                 detail="Cannot deactivate or demote the last active admin/CEO account.",
             )
 
-    return update_user(db, db_user, user)
+    try:
+        return update_user(db, db_user, user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ----------------------------------------
