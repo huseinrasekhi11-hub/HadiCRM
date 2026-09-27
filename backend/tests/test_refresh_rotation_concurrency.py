@@ -292,9 +292,9 @@ def test_rotation_uses_server_time_not_stale_snapshot():
 def test_logout_with_a_rotated_token_revokes_the_replacement_family():
     res = client.post("/auth/login", data={"username": ADMIN_MOBILE, "password": ADMIN_PASSWORD})
     assert res.status_code == 200
-    old_refresh = res.json()["refresh_token"]
+    old_refresh = client.cookies.get("hadiflow_refresh")
     rotated = client.post("/auth/refresh-token", json={"refresh_token": old_refresh})
     assert rotated.status_code == 200
-    new_refresh = rotated.json()["refresh_token"]
+    new_refresh = client.cookies.get("hadiflow_refresh")
     assert client.post("/auth/logout", json={"refresh_token": old_refresh}).status_code == 204
     assert client.post("/auth/refresh-token", json={"refresh_token": new_refresh}).status_code == 401
