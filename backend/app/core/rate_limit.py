@@ -39,6 +39,7 @@ Argon2 فقط هزینه‌ی هر تلاش را بالا می‌برد، نه �
 دفاعِ داخل برنامه است، نه جایگزینِ edge limiting.
 ===========================================================
 """
+import ipaddress
 import threading
 import time
 from datetime import datetime, timedelta, timezone
