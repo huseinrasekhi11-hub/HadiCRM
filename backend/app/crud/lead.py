@@ -477,6 +477,20 @@ def get_pipeline_counts(
     }
 
 
+def _lock_lead_for_mutation(db: Session, lead_id: int) -> Lead:
+    """Reload and lock the lead row before state-dependent mutations."""
+    locked = (
+        db.query(Lead)
+        .populate_existing()
+        .filter(Lead.id == lead_id, Lead.is_deleted == False)
+        .with_for_update()
+        .first()
+    )
+    if locked is None:
+        raise ValueError("Lead not found.")
+    return locked
+
+
 # ==========================================================
 # ویرایش اطلاعات پرونده
 # ==========================================================
@@ -493,6 +507,7 @@ def update_lead(
 
     اگر فاکتور نهایی صادر شده باشد، پرونده برای کارشناس قفل است.
     """
+    lead = _lock_lead_for_mutation(db, lead.id)
     _assert_invoice_editable(lead, current_user)
 
     if lead_data.customer_name is not None:
@@ -541,8 +556,10 @@ def update_lead_status(
     lead: Lead,
     status_data: LeadStatusUpdate,
     current_user: User,
+    *,
+    commit: bool = True,
 ):
-    # قفل فاکتور پیش از هر تغییری بررسی می‌شود
+    lead = _lock_lead_for_mutation(db, lead.id)
     _assert_invoice_editable(lead, current_user)
 
     old_status = lead.status
@@ -586,8 +603,9 @@ def update_lead_status(
         ),
         commit=False,
     )
-    db.commit()
-    db.refresh(lead)
+    if commit:
+        db.commit()
+        db.refresh(lead)
     return lead
 
 
