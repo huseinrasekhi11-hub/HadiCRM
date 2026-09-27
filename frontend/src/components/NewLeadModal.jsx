@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { UserPlus, Loader2 } from "lucide-react";
 import { createLead } from "../api/client";
-import { useToast } from "./Toast";
+import { useToast } from "../hooks/useToast";
 import "./NewLeadModal.css";
 import { useModalBehavior } from "../hooks/useModalBehavior";
 import { getErrorMessage } from "../utils/apiError";

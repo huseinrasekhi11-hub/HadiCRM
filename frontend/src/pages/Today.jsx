@@ -6,8 +6,8 @@ import {
 } from "lucide-react";
 import AppShell from "../components/AppShell";
 import LogActionModal from "../components/LogActionModal";
-import { useToast } from "../components/Toast";
-import { useAuth } from "../context/AuthContext";
+import { useToast } from "../hooks/useToast";
+import { useAuth } from "../hooks/useAuth";
 import {
   searchLeads, getMyTasks, createLeadActivity, updateLeadTaskStatus,
 } from "../api/client";
@@ -72,8 +72,10 @@ function LeadQueueRow({ lead, onLog, onOpen }) {
 }
 
 /* --- One task row: optimistic checkbox + lead context. --- */
-function TaskQueueRow({ task, onToggle, onOpen }) {
-  const overdue = new Date(task.due_at).getTime() < Date.now();
+function TaskQueueRow({ task, onToggle, onOpen, nowTs }) {
+  // `nowTs` comes from the parent: reading the clock during render is
+  // impure (and gave every row its own "now" within one render pass).
+  const overdue = new Date(task.due_at).getTime() < nowTs;
   return (
     <div className="today-row">
       <button
@@ -121,39 +123,40 @@ export default function Today() {
   const [error, setError] = useState("");
   const [logLead, setLogLead] = useState(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const [overdueRaw, todayRaw, newRaw, myTasks] = await Promise.all([
-        searchLeads({ smartFilter: "overdue", limit: 20 }),
-        searchLeads({ smartFilter: "today_followup", limit: 20 }),
-        searchLeads({ smartFilter: "new", limit: 10 }),
-        getMyTasks(),
-      ]);
-      // Backend smart filters overlap (a follow-up earlier today is both
-      // "overdue" and "today") — de-duplicate so no lead appears twice.
-      const overdueIds = new Set(overdueRaw.map((l) => l.id));
-      setOverdue(overdueRaw);
-      setToday(todayRaw.filter((l) => !overdueIds.has(l.id)));
-      setNewLeads(newRaw);
-      setTasks(myTasks);
-    } catch {
-      setError("بارگذاری کارهای امروز ناموفق بود.");
-    } finally {
-      setLoading(false);
-    }
+  // See the note in Tasks.jsx: the initial state already says "loading",
+  // and refreshing after an action should not blank the page out.
+  const load = useCallback(() => {
+    return Promise.all([
+      searchLeads({ smartFilter: "overdue", limit: 20 }),
+      searchLeads({ smartFilter: "today_followup", limit: 20 }),
+      searchLeads({ smartFilter: "new", limit: 10 }),
+      getMyTasks(),
+    ])
+      .then(([overdueRaw, todayRaw, newRaw, myTasks]) => {
+        // Backend smart filters overlap (a follow-up earlier today is both
+        // "overdue" and "today") — de-duplicate so no lead appears twice.
+        const overdueIds = new Set(overdueRaw.map((l) => l.id));
+        setOverdue(overdueRaw);
+        setToday(todayRaw.filter((l) => !overdueIds.has(l.id)));
+        setNewLeads(newRaw);
+        setTasks(myTasks);
+        setError("");
+      })
+      .catch(() => setError("بارگذاری کارهای امروز ناموفق بود."))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const { overdueTasks, todayTasks } = useMemo(() => {
+  /* One clock reading per pass, shared with the rows below (see TaskQueueRow). */
+  const { overdueTasks, todayTasks, nowTs } = useMemo(() => {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const end = new Date(start.getTime() + 86400000);
     const pending = tasks.filter((t) => t.status === "pending");
     const byDue = (a, b) => new Date(a.due_at) - new Date(b.due_at);
     return {
+      nowTs: now.getTime(),
       overdueTasks: pending.filter((t) => new Date(t.due_at) < now).sort(byDue),
       todayTasks: pending
         .filter((t) => {
@@ -242,7 +245,13 @@ export default function Today() {
               count={overdueTasks.length + todayTasks.length}
             >
               {[...overdueTasks, ...todayTasks].map((t) => (
-                <TaskQueueRow key={t.id} task={t} onToggle={toggleTask} onOpen={() => navigate(`/leads/${t.lead_id}`)} />
+                <TaskQueueRow
+                  key={t.id}
+                  task={t}
+                  onToggle={toggleTask}
+                  onOpen={() => navigate(`/leads/${t.lead_id}`)}
+                  nowTs={nowTs}
+                />
               ))}
             </QueueSection>
 

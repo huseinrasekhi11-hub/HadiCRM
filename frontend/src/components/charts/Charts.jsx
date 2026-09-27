@@ -1,18 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { fmtNum, fmtCompactRial } from "../../utils/format";
 import "./Charts.css";
-
-/* ---------- Number formatting (Persian) ---------- */
-export const fmtNum = (n) => (Number(n) || 0).toLocaleString("fa-IR");
-
-export function fmtCompactRial(n) {
-  const v = Number(n) || 0;
-  if (v >= 1_000_000_000)
-    return `${(v / 1_000_000_000).toLocaleString("fa-IR", { maximumFractionDigits: 1 })} میلیارد`;
-  if (v >= 1_000_000)
-    return `${(v / 1_000_000).toLocaleString("fa-IR", { maximumFractionDigits: 1 })} میلیون`;
-  return v.toLocaleString("fa-IR");
-}
-export const fmtRial = (n) => `${fmtNum(n)} ریال`;
 
 /* ---------- Empty state ---------- */
 export function EmptyChart({ label = "داده‌ای برای نمایش وجود ندارد" }) {
@@ -207,33 +195,36 @@ export function DonutChart({ segments, centerValue, centerLabel }) {
   const total = segments.reduce((s, x) => s + x.value, 0) || 1;
   const r = 56;
   const C = 2 * Math.PI * r;
-  let offset = 0;
+
+  // Radial offsets are derived (not accumulated by mutating a counter
+  // while mapping): mutation during render is unsafe under concurrent
+  // rendering and defeats memoization.
+  const dashes = segments.map((s) => ((s.value || 0) / total) * C);
+  const laidOut = segments.map((s, i) => ({
+    ...s,
+    dash: dashes[i],
+    offset: dashes.slice(0, i).reduce((sum, d) => sum + d, 0),
+  }));
 
   return (
     <div className="donut-wrap">
       <svg viewBox="0 0 160 160" className="donut-svg" dir="ltr">
         <circle cx="80" cy="80" r={r} fill="none" className="donut-track" strokeWidth={18} />
-        {segments.map((s, i) => {
-          const frac = (s.value || 0) / total;
-          const dash = frac * C;
-          const el = (
-            <circle
-              key={i}
-              cx="80"
-              cy="80"
-              r={r}
-              fill="none"
-              stroke={s.color}
-              strokeWidth={18}
-              strokeDasharray={`${dash} ${C - dash}`}
-              strokeDashoffset={-offset}
-              transform="rotate(-90 80 80)"
-              strokeLinecap="butt"
-            />
-          );
-          offset += dash;
-          return el;
-        })}
+        {laidOut.map((s, i) => (
+          <circle
+            key={i}
+            cx="80"
+            cy="80"
+            r={r}
+            fill="none"
+            stroke={s.color}
+            strokeWidth={18}
+            strokeDasharray={`${s.dash} ${C - s.dash}`}
+            strokeDashoffset={-s.offset}
+            transform="rotate(-90 80 80)"
+            strokeLinecap="butt"
+          />
+        ))}
         <text x="80" y="76" textAnchor="middle" className="donut-center-value">{centerValue}</text>
         <text x="80" y="96" textAnchor="middle" className="donut-center-label">{centerLabel}</text>
       </svg>

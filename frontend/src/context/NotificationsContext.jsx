@@ -1,8 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { useAuth } from "./AuthContext";
+import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { NotificationsContext } from "../hooks/useNotifications";
 import { getUnreadCount } from "../api/client";
-
-const NotificationsContext = createContext(null);
 
 const POLL_INTERVAL_MS = 30000;
 
@@ -23,10 +22,7 @@ export function NotificationsProvider({ children }) {
   }, [user]);
 
   useEffect(() => {
-    if (!user) {
-      setUnreadCount(0);
-      return;
-    }
+    if (!user) return;
     refreshUnreadCount();
     const interval = setInterval(refreshUnreadCount, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
@@ -39,8 +35,10 @@ export function NotificationsProvider({ children }) {
     setUnreadCount((c) => Math.max(0, c + delta));
   }, []);
 
+  // With nobody signed in there is no unread count to show — derived here
+  // instead of being written back into state from an effect.
   const value = {
-    unreadCount,
+    unreadCount: user ? unreadCount : 0,
     setUnreadCount,
     adjustUnreadCount,
     refreshUnreadCount,
@@ -51,12 +49,4 @@ export function NotificationsProvider({ children }) {
       {children}
     </NotificationsContext.Provider>
   );
-}
-
-export function useNotifications() {
-  const ctx = useContext(NotificationsContext);
-  if (!ctx) {
-    throw new Error("useNotifications must be used within a NotificationsProvider");
-  }
-  return ctx;
 }

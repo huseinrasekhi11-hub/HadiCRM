@@ -37,20 +37,29 @@ function FieldRow({ label, value, canonicalValue, ltr = false }) {
 
 export default function DuplicateCenter({ lead, related = [] }) {
   const navigate = useNavigate();
-  const [submissions, setSubmissions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  // One state object keyed by lead id: switching to another lead resets to
+  // the loading state during render (the documented "adjust state when a
+  // prop changes" pattern) instead of through an effect, which would commit
+  // one render with the previous lead's data before resetting.
+  const [state, setState] = useState(() => ({
+    id: lead.id,
+    submissions: [],
+    loading: true,
+    error: "",
+  }));
+  if (state.id !== lead.id) {
+    setState({ id: lead.id, submissions: [], loading: true, error: "" });
+  }
 
   useEffect(() => {
     let mounted = true;
-    setLoading(true);
-    setError("");
     getLeadDuplicateHistory(lead.id)
-      .then((d) => mounted && setSubmissions(d))
-      .catch(() => mounted && setError("دریافت تاریخچه‌ی ثبت‌های تکراری ناموفق بود."))
-      .finally(() => mounted && setLoading(false));
+      .then((d) => mounted && setState((s) => ({ ...s, submissions: d, loading: false })))
+      .catch(() => mounted && setState((s) => ({ ...s, error: "دریافت تاریخچه‌ی ثبت‌های تکراری ناموفق بود.", loading: false })));
     return () => { mounted = false; };
   }, [lead.id]);
+
+  const { submissions, loading, error } = state;
 
   // ثبت اصلی + ثبت‌های تکراری
   const totalSubmissions = (lead.duplicate_count || 0) + 1;

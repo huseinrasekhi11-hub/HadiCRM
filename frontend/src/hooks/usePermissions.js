@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 import * as perms from "../permissions";
 
 export function usePermissions() {

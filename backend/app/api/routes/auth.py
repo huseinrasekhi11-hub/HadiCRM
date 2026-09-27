@@ -126,7 +126,7 @@ def login(
     # توکن تمدید در کوکیِ HttpOnly هم نصب می‌شود: مرورگر آن را خودکار
     # می‌فرستد و جاوااسکریپت به آن دسترسی ندارد (XSS نمی‌تواند بدزدد).
     # مقدارِ درونِ بدنه برای کلاینت‌های غیرمرورگری باقی مانده است.
-    set_refresh_cookie(response, refresh_token)
+    set_refresh_cookie(response, refresh_token, request)
 
     return {
         "access_token": access_token,
@@ -178,7 +178,7 @@ def refresh_access_token(
 
     payload = verify_token(token, expected_type=TOKEN_TYPE_REFRESH)
     if not payload:
-        clear_refresh_cookie(response)
+        clear_refresh_cookie(response, request)
         raise credentials_exception
 
     user_mobile = payload.get("sub")
@@ -192,12 +192,12 @@ def refresh_access_token(
     try:
         _old_session, new_session = rotate_session(db, payload["jti"])
     except RefreshTokenError:
-        clear_refresh_cookie(response)
+        clear_refresh_cookie(response, request)
         raise credentials_exception
 
     user = get_user_by_mobile(db, user_mobile)
     if not user or not user.is_active:
-        clear_refresh_cookie(response)
+        clear_refresh_cookie(response, request)
         raise credentials_exception
 
     new_access_token = create_access_token(data={"sub": user.mobile})
@@ -205,7 +205,7 @@ def refresh_access_token(
         data={"sub": user.mobile},
         jti=new_session.jti,
     )
-    set_refresh_cookie(response, new_refresh_token)
+    set_refresh_cookie(response, new_refresh_token, request)
 
     return {
         "access_token": new_access_token,
@@ -263,7 +263,7 @@ def change_my_password(
     # اگر نشستِ جاری حفظ نشده (کلاینت توکنی ارسال نکرده)، کوکی هم پاک
     # می‌شود تا کاربر با همان رمزِ قدیمی دوباره وارد نشود.
     if keep_jti is None:
-        clear_refresh_cookie(response)
+        clear_refresh_cookie(response, request)
 
     return {
         "message": "رمز عبور با موفقیت تغییر کرد.",
@@ -295,5 +295,5 @@ def logout(
         if payload:
             revoke_by_token_payload(db, payload, reason="logout")
 
-    clear_refresh_cookie(response)
+    clear_refresh_cookie(response, request)
     return None

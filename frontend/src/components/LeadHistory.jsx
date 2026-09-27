@@ -9,7 +9,7 @@ import {
   getLeadTimeline, getLeadAttachments, getLeadDuplicateHistory,
   getAdminLeadTimeline, downloadAttachment,
 } from "../api/client";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 import { statusLabel, WON_STATUS, LOST_STATUS } from "../leadStatus";
 import "./LeadHistory.css";
 
@@ -153,14 +153,22 @@ function dayTitle(d) {
 export default function LeadHistory({ lead, refreshToken }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "ceo";
-  const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  // Everything the fetch depends on, in one key: when any part of it
+  // changes the history restarts from the loading state during render
+  // instead of via an effect that would render the stale history once more.
+  const loadKey = `${lead.id}|${isAdmin}|${refreshToken}|${user?.id}`;
+  const [state, setState] = useState(() => ({
+    key: loadKey,
+    events: [],
+    loading: true,
+    error: "",
+  }));
+  if (state.key !== loadKey) {
+    setState({ key: loadKey, events: [], loading: true, error: "" });
+  }
 
   useEffect(() => {
     let mounted = true;
-    setLoading(true);
-    setError("");
     const load = isAdmin
       ? getAdminLeadTimeline(lead.id).then((data) => (data.events || []).map(normalizeAdminEvent))
       : Promise.all([
@@ -176,12 +184,13 @@ export default function LeadHistory({ lead, refreshToken }) {
       .then((evs) => {
         if (!mounted) return;
         evs.sort((a, b) => (b.at || 0) - (a.at || 0));
-        setEvents(evs);
+        setState((s) => ({ ...s, events: evs, loading: false }));
       })
-      .catch(() => mounted && setError("دریافت تاریخچه با خطا مواجه شد."))
-      .finally(() => mounted && setLoading(false));
+      .catch(() => mounted && setState((s) => ({ ...s, error: "دریافت تاریخچه با خطا مواجه شد.", loading: false })));
     return () => { mounted = false; };
-  }, [lead.id, isAdmin, refreshToken, user?.id]);
+  }, [lead.id, isAdmin, refreshToken, user?.id, loadKey]);
+
+  const { events, loading, error } = state;
 
   const groups = useMemo(() => {
     const map = new Map();
@@ -194,7 +203,10 @@ export default function LeadHistory({ lead, refreshToken }) {
     return Array.from(map.values());
   }, [events]);
 
-  const daysOpen = Math.max(0, Math.floor((Date.now() - new Date(lead.created_at).getTime()) / 86400000));
+  const daysOpen = useMemo(
+    () => Math.max(0, Math.floor((new Date().getTime() - new Date(lead.created_at).getTime()) / 86400000)),
+    [lead.created_at],
+  );
   const isWon = lead.status === WON_STATUS;
   const isLost = lead.status === LOST_STATUS;
 

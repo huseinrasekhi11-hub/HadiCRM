@@ -6,7 +6,7 @@ import {
 import {
   searchLeadsPaged, getPipelineCounts, updateLeadStatus, createLeadActivity,
 } from "../api/client";
-import { useToast } from "../components/Toast";
+import { useToast } from "../hooks/useToast";
 import AppShell from "../components/AppShell";
 import HealthBadge from "../components/HealthBadge";
 import NewLeadModal from "../components/NewLeadModal";

@@ -12,7 +12,7 @@ import {
   updateLead, setLeadFollowUp, getLeadSaleItems, createLeadSaleItem,
   getProducts, getLeadRelatedLeads,
 } from "../api/client";
-import { useToast } from "../components/Toast";
+import { useToast } from "../hooks/useToast";
 import { usePermissions } from "../hooks/usePermissions";
 import AppShell from "../components/AppShell";
 import HealthBadge from "../components/HealthBadge";
@@ -150,9 +150,17 @@ export default function LeadDetail() {
   const loadCore = useCallback(() => getLead(leadId).then(setLead), [leadId]);
   const bumpHistory = () => setHistoryVersion((v) => v + 1);
 
-  useEffect(() => {
+  // Navigating to another lead resets the page during render (the
+  // documented "adjust state when a prop changes" pattern) instead of in an
+  // effect, which would first paint the previous lead's data again.
+  const [loadKey, setLoadKey] = useState(leadId);
+  if (loadKey !== leadId) {
+    setLoadKey(leadId);
     setLoading(true);
     setError("");
+  }
+
+  useEffect(() => {
     Promise.all([
       loadCore(),
       getLeadTasks(leadId).then(setTasks).catch(() => setTasks([])),
@@ -173,7 +181,7 @@ export default function LeadDetail() {
         }
       })
       .finally(() => setLoading(false));
-  }, [leadId, loadCore]);
+  }, [leadId, loadCore, loadKey]);
 
   useEffect(() => {
     // Fetch assignable users if the user has permission to assign

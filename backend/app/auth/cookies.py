@@ -23,19 +23,36 @@ SameSite=None لازم است و برخی مرورگرها (به‌ویژه Safa
 REFRESH_COOKIE_SAMESITE=lax تنظیم شود.
 ===========================================================
 """
-from fastapi import Response
+from fastapi import Request, Response
 
 from app.config.settings import settings
 
 
-def set_refresh_cookie(response: Response, token: str) -> None:
+def cookie_path(request: Request | None = None) -> str:
+    """
+    مسیرِ کوکی.
+
+    وقتی API پشت یک پیشوند (مثل /api) سرو می‌شود، مسیرِ کوکی هم باید همان
+    پیشوند را داشته باشد — وگرنه مرورگر کوکیِ `Path=/auth` را برای
+    درخواستِ `/api/auth/refresh-token` نمی‌فرستد و نشست بعد از هر
+    بارگذاریِ صفحه می‌پرد. در آن استقرارها یا `REFRESH_COOKIE_PATH` را
+    صریحاً تنظیم کنید (مثلاً `/api/auth`)، یا `root_path` را در اختیارِ
+    برنامه بگذارید (uvicorn --root-path / --proxy-headers).
+    """
+    root_path = ""
+    if request is not None:
+        root_path = (request.scope.get("root_path") or "").rstrip("/")
+    return f"{root_path}{settings.REFRESH_COOKIE_PATH}"
+
+
+def set_refresh_cookie(response: Response, token: str, request: Request | None = None) -> None:
     """نصبِ کوکیِ توکن تمدید روی پاسخ."""
     response.set_cookie(
         key=settings.REFRESH_COOKIE_NAME,
         value=token,
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         expires=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
-        path=settings.REFRESH_COOKIE_PATH,
+        path=cookie_path(request),
         domain=settings.REFRESH_COOKIE_DOMAIN,
         secure=settings.REFRESH_COOKIE_SECURE,
         httponly=True,
@@ -43,11 +60,11 @@ def set_refresh_cookie(response: Response, token: str) -> None:
     )
 
 
-def clear_refresh_cookie(response: Response) -> None:
+def clear_refresh_cookie(response: Response, request: Request | None = None) -> None:
     """حذفِ کوکیِ توکن تمدید (logout / انقضا / خطا)."""
     response.delete_cookie(
         key=settings.REFRESH_COOKIE_NAME,
-        path=settings.REFRESH_COOKIE_PATH,
+        path=cookie_path(request),
         domain=settings.REFRESH_COOKIE_DOMAIN,
         secure=settings.REFRESH_COOKIE_SECURE,
         httponly=True,

@@ -8,8 +8,8 @@ import {
 import {
   getDeletedLeads, restoreDeletedLead, getUsers,
 } from "../api/client";
-import { useAuth } from "../context/AuthContext";
-import { useToast } from "../components/Toast";
+import { useAuth } from "../hooks/useAuth";
+import { useToast } from "../hooks/useToast";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import InfiniteScroll from "../components/InfiniteScroll";
 import AppShell from "../components/AppShell";

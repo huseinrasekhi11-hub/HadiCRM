@@ -9,7 +9,7 @@ import {
   markNotificationRead,
   markAllNotificationsRead,
 } from "../api/client";
-import { useNotifications } from "../context/NotificationsContext";
+import { useNotifications } from "../hooks/useNotifications";
 import "./NotificationBell.css";
 
 // Semantic mapping for enterprise look

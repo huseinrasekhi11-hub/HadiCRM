@@ -7,13 +7,20 @@
  *   a 304 returns the cached body (pairs with backend ETagMiddleware).
  */
 import axios from "axios";
+import { getAccessToken } from "./tokenStore";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-export const api = axios.create({ baseURL: BASE_URL });
+// `withCredentials` is what makes the browser send the HttpOnly refresh
+// cookie on /auth/refresh-token and /auth/logout. Without it the session
+// could never survive a page reload now that tokens are gone from
+// localStorage. (On a same-origin/same-site deployment this is harmless;
+// cross-site deployments additionally need SameSite=None + HTTPS.)
+export const api = axios.create({ baseURL: BASE_URL, withCredentials: true });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("hadiflow_access_token");
+  // The access token lives in memory only — never in localStorage.
+  const token = getAccessToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });

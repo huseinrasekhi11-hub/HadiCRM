@@ -6,11 +6,12 @@ import {
   Target, Activity, BarChart3,
 } from "lucide-react";
 import { getDashboard } from "../api/client";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 import AppShell from "../components/AppShell";
 import { useCountUp } from "../hooks/useCountUp";
 import { statusLabel, statusColor } from "../leadStatus";
-import { FunnelChart, fmtNum } from "../components/charts/Charts";
+import { FunnelChart } from "../components/charts/Charts";
+import { fmtNum } from "../utils/format";
 import "./Dashboard.css";
 
 const getGreeting = () => {
