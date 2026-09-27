@@ -314,8 +314,8 @@ def test_migration_graph_has_single_head():
     # NOTE: keep this in sync when a new migration is added — the point of
     # the assertion is that the graph stays *linear*, so exactly one
     # revision is expected to be nobody's `down_revision`.
-    assert heads[0] == "e3f1c9b7d4a2", (
-        "head should be the login_rate_events migration (update this test "
+    assert heads[0] == "f5a8c9d2e1b3", (
+        "head should be the current session-version migration "
         f"when a newer revision lands); got {heads[0]}"
     )
 
