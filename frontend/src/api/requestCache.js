@@ -7,9 +7,9 @@
  *   a 304 returns the cached body (pairs with backend ETagMiddleware).
  */
 import axios from "axios";
-import { getAccessToken } from "./tokenStore";
+import { getAccessToken } from "./tokenStore.js";
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const BASE_URL = import.meta.env?.VITE_API_BASE_URL || "http://localhost:8000";
 
 // `withCredentials` is what makes the browser send the HttpOnly refresh
 // cookie on /auth/refresh-token and /auth/logout. Without it the session
@@ -33,6 +33,7 @@ api.interceptors.request.use((config) => {
 const DEFAULT_TTL = 30_000;
 const cache = new Map();   // key -> { data, etag, expiresAt, epoch }
 const inflight = new Map(); // key -> Promise
+let cacheGeneration = 0;
 
 // Session namespace: every login/logout/session-clear boundary bumps the
 // epoch, and cached entries are only served when they were stored under the
@@ -53,8 +54,10 @@ const stableKey = (url, params) =>
 export async function cachedGet(url, { params, ttl = DEFAULT_TTL, force = false } = {}) {
   const key = stableKey(url, params);
   const entry = cache.get(key);
+  const requestGeneration = cacheGeneration;
+  const requestEpoch = sessionEpoch;
 
-  if (!force && entry && entry.epoch === sessionEpoch && entry.expiresAt > Date.now()) {
+  if (!force && entry && entry.epoch === requestEpoch && entry.expiresAt > Date.now()) {
     return entry.data;
   }
 
@@ -66,34 +69,58 @@ export async function cachedGet(url, { params, ttl = DEFAULT_TTL, force = false 
   const request = api
     .get(url, { params, headers })
     .then((res) => {
+      if (requestGeneration !== cacheGeneration || requestEpoch !== sessionEpoch) {
+        throw new Error("Stale cached request discarded after session change.");
+      }
       const next = {
         data: res.data,
         etag: res.headers.etag || entry?.etag,
         expiresAt: Date.now() + ttl,
-        epoch: sessionEpoch,
+        epoch: requestEpoch,
       };
       cache.set(key, next);
       return res.data;
     })
     .catch((err) => {
       // 304 -> serve from cache (only if it belongs to the current session)
-      if (err.response?.status === 304 && entry && entry.epoch === sessionEpoch) {
+      if (
+        requestGeneration === cacheGeneration &&
+        requestEpoch === sessionEpoch &&
+        err.response?.status === 304 &&
+        entry &&
+        entry.epoch === requestEpoch
+      ) {
         entry.expiresAt = Date.now() + ttl;
         return entry.data;
       }
-      // Offline / network error -> serve stale cache if available
-      if (!err.response && entry && entry.epoch === sessionEpoch) return entry.data;
+      // Offline / network error -> serve stale cache only inside the same
+      // session generation.
+      if (
+        requestGeneration === cacheGeneration &&
+        requestEpoch === sessionEpoch &&
+        !err.response &&
+        entry &&
+        entry.epoch === requestEpoch
+      ) return entry.data;
       throw err;
     })
-    .finally(() => inflight.delete(key));
+    .finally(() => {
+      if (inflight.get(key) === request) inflight.delete(key);
+    });
 
   inflight.set(key, request);
   return request;
 }
 
 export function invalidate(urlPrefix = "") {
+  cacheGeneration += 1;
+  if (!urlPrefix) {
+    cache.clear();
+    inflight.clear();
+    return;
+  }
   for (const key of cache.keys()) {
-    if (!urlPrefix || key.startsWith(urlPrefix)) cache.delete(key);
+    if (key.startsWith(urlPrefix)) cache.delete(key);
   }
 }
 

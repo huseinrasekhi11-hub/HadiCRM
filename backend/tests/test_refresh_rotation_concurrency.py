@@ -34,14 +34,16 @@ from app.auth.jwt_handler import TOKEN_TYPE_REFRESH, verify_token
 from app.database.database import SessionLocal, engine
 from app.main import app
 from app.models.refresh_session import RefreshSession
+from app.config.settings import settings
 from app.services import auth_service
 from app.services.auth_service import RefreshTokenError, rotate_session
 
 from fastapi.testclient import TestClient
 
-client = TestClient(app)
+client = TestClient(app, base_url="https://testserver")
 
 ADMIN_MOBILE = "09120000000"
+COOKIE_NAME = settings.REFRESH_COOKIE_NAME
 ADMIN_PASSWORD = "Admin123!"
 
 
@@ -51,7 +53,10 @@ def _new_refresh_token() -> str:
         data={"username": ADMIN_MOBILE, "password": ADMIN_PASSWORD},
     )
     assert res.status_code == 200, res.text
-    return res.json()["refresh_token"]
+    token = client.cookies.get(COOKIE_NAME)
+    assert token, "login must install an HttpOnly refresh cookie"
+    assert "refresh_token" not in res.json()
+    return token
 
 
 def _jti_of(refresh_token: str) -> str:
@@ -250,14 +255,15 @@ def test_concurrent_refresh_issues_at_most_one_new_session(monkeypatch):
 def test_sequential_rotations_still_chain():
     token = _new_refresh_token()
     for _ in range(3):
-        res = client.post("/auth/refresh-token", json={"refresh_token": token})
+        res = client.post("/auth/refresh-token", json={})
         assert res.status_code == 200, res.text
-        token = res.json()["refresh_token"]
+        token = client.cookies.get(COOKIE_NAME)
+        assert token
         assert uuid.UUID(hex=_jti_of(token))  # still a well-formed jti
 
     # and the newest token is usable, the previous one is dead
     assert client.post(
-        "/auth/refresh-token", json={"refresh_token": token}
+        "/auth/refresh-token", json={}
     ).status_code == 200
 
 

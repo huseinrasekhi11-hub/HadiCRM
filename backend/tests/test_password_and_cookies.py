@@ -94,19 +94,22 @@ def test_login_sets_an_httponly_refresh_cookie():
     assert "Secure" in cookie_header, "cookie must be Secure in production defaults"
     assert f"Path={settings.REFRESH_COOKIE_PATH}" in cookie_header
     assert "Max-Age=" in cookie_header
+    assert "refresh_token" not in res.json(), "refresh token must never be exposed in JSON"
 
 
 def test_refresh_works_without_a_body_using_the_cookie():
     client.cookies.clear()
     res = _login(ADMIN_MOBILE, ADMIN_PASSWORD)
     assert res.status_code == 200
-    first_refresh = res.json()["refresh_token"]
+    first_refresh = client.cookies.get(COOKIE_NAME)
+    assert first_refresh
 
     # بدونِ بدنه — فقط با کوکی (همان کاری که مرورگر می‌کند)
     res = client.post("/auth/refresh-token", json={})
     assert res.status_code == 200, res.text
-    new_refresh = res.json()["refresh_token"]
-    assert new_refresh != first_refresh
+    new_refresh = client.cookies.get(COOKIE_NAME)
+    assert new_refresh and new_refresh != first_refresh
+    assert "refresh_token" not in res.json()
 
     # توکنِ قبلی مصرف شده است
     assert client.post(
@@ -152,14 +155,16 @@ def test_refresh_accepts_a_cookie_request_from_an_allowed_origin():
     assert res.status_code == 200, res.text
 
 
-def test_refresh_with_body_token_still_works_for_non_browser_clients():
+def test_refresh_accepts_a_preexisting_body_token_without_returning_one():
     client.cookies.clear()
     res = _login(ADMIN_MOBILE, ADMIN_PASSWORD)
-    refresh_token = res.json()["refresh_token"]
+    refresh_token = client.cookies.get(COOKIE_NAME)
+    assert refresh_token
 
-    # کلاینت‌های غیرمرورگری توکن را در بدنه می‌فرستند (سازگاری با قبل)
+    client.cookies.clear()
     res = client.post("/auth/refresh-token", json={"refresh_token": refresh_token})
     assert res.status_code == 200, res.text
+    assert "refresh_token" not in res.json()
 
 
 def test_logout_without_body_clears_the_cookie_and_revokes_the_session():
@@ -195,6 +200,32 @@ def test_user_can_change_own_password():
     # رمزِ قدیمی دیگر کار نمی‌کند و رمزِ جدید کار می‌کند
     assert _login(mobile, "StrongPass!123").status_code == 401
     assert _login(mobile, "NewPass!2026").status_code == 200
+
+
+def test_password_change_invalidates_old_access_token_and_returns_a_fresh_one():
+    user = _create_user()
+    logged = _login(user["mobile"], "StrongPass!123")
+    assert logged.status_code == 200
+    old_access = logged.json()["access_token"]
+    headers = {"Authorization": f"Bearer {old_access}"}
+
+    changed = client.post(
+        "/auth/change-password",
+        headers=headers,
+        json={
+            "current_password": "StrongPass!123",
+            "new_password": "Fresh!2026",
+        },
+    )
+    assert changed.status_code == 200, changed.text
+    new_access = changed.json()["access_token"]
+    assert new_access and new_access != old_access
+
+    assert client.get("/auth/me", headers=headers).status_code == 401
+    assert client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {new_access}"},
+    ).status_code == 200
 
 
 def test_change_password_requires_the_current_password():
@@ -235,7 +266,8 @@ def test_change_password_revokes_other_sessions_but_keeps_the_current_one():
     client.cookies.clear()
     res = _login(user["mobile"], "StrongPass!123")
     headers = {"Authorization": f"Bearer {res.json()['access_token']}"}
-    kept_refresh = res.json()["refresh_token"]
+    kept_refresh = client.cookies.get(COOKIE_NAME)
+    assert kept_refresh
 
     # نشستِ ۲: دستگاهِ دیگر (کوکیِ جدا)
     other = TestClient(app, base_url="https://testserver")
@@ -243,7 +275,8 @@ def test_change_password_revokes_other_sessions_but_keeps_the_current_one():
         "/auth/login", data={"username": user["mobile"], "password": "StrongPass!123"}
     )
     assert other_res.status_code == 200
-    other_refresh = other_res.json()["refresh_token"]
+    other_refresh = other.cookies.get(COOKIE_NAME)
+    assert other_refresh
 
     assert len(_active_sessions(user_id)) == 2
 
@@ -253,7 +286,6 @@ def test_change_password_revokes_other_sessions_but_keeps_the_current_one():
         json={
             "current_password": "StrongPass!123",
             "new_password": "Rotated!2026",
-            "refresh_token": kept_refresh,
         },
     )
     assert res.status_code == 200, res.text
@@ -263,7 +295,7 @@ def test_change_password_revokes_other_sessions_but_keeps_the_current_one():
         "/auth/refresh-token", json={"refresh_token": other_refresh}
     ).status_code == 401
     # ... و نشستِ جاری زنده مانده است
-    res = client.post("/auth/refresh-token", json={"refresh_token": kept_refresh})
+    res = client.post("/auth/refresh-token", json={})
     assert res.status_code == 200, res.text
 
 
@@ -317,7 +349,8 @@ def test_admin_can_reset_another_users_password():
     # یک نشستِ فعال برای کاربر هدف
     res = _login(user["mobile"], "StrongPass!123")
     assert res.status_code == 200
-    old_refresh = res.json()["refresh_token"]
+    old_refresh = client.cookies.get(COOKIE_NAME)
+    assert old_refresh
 
     res = client.post(
         f"/users/{user_id}/reset-password",

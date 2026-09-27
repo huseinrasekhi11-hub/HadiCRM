@@ -13,6 +13,7 @@ Integration/unit tests: the login brute-force budget must be SHARED.
   * رویدادها واقعاً در جدول login_rate_events ثبت و بعد از گذرِ پنجره
     پاک/نادیده گرفته می‌شوند.
 """
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -213,3 +214,51 @@ def test_persisted_events_use_aware_utc_timestamps():
         assert created >= before - timedelta(seconds=5)
     finally:
         rate_limit.clear_login_counters()
+
+def test_shared_limiter_never_exceeds_budget_under_concurrency():
+    rate_limit.clear_login_counters()
+    try:
+        limiter = rate_limit.DatabaseRateLimiter(
+            session_factory=None,
+            max_events=3,
+            window_seconds=60,
+        )
+        key = "acct:concurrency|09170000008"
+        barrier = threading.Barrier(5)
+        results = []
+        lock = threading.Lock()
+
+        def worker():
+            barrier.wait(timeout=15)
+            outcome = limiter.record(key)[0]
+            with lock:
+                results.append(outcome)
+
+        threads = [threading.Thread(target=worker) for _ in range(5)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        assert not any(thread.is_alive() for thread in threads)
+        assert results.count(True) == 3
+        assert results.count(False) == 2
+        assert len(_event_rows(key)) == 3
+    finally:
+        rate_limit.clear_login_counters()
+
+
+def test_untrusted_forwarded_for_is_ignored():
+    from starlette.requests import Request
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/auth/login",
+        "headers": [(b"x-forwarded-for", b"203.0.113.10")],
+        "client": ("198.51.100.20", 12345),
+        "server": ("testserver", 443),
+        "scheme": "https",
+    }
+    request = Request(scope)
+    assert rate_limit._client_ip(request) == "198.51.100.20"

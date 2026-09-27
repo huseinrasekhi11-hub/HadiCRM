@@ -503,6 +503,12 @@ def update_lead(
         mobile_normalized = normalize_mobile(lead_data.mobile)
         if not mobile_normalized:
             raise ValueError("شماره موبایل واردشده معتبر نیست.")
+
+        # Reuse the same per-mobile PostgreSQL advisory lock as lead creation.
+        # Without it, two existing leads can concurrently change their phone
+        # to the same normalized value after both pass the clash query.
+        _lock_mobile_for_create(db, mobile_normalized)
+
         clash = (
             db.query(Lead)
             .filter(

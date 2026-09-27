@@ -261,3 +261,35 @@ def test_security_headers_present_and_download_not_etagged_by_middleware():
     assert d.status_code == 200
     assert d.headers.get("x-content-type-options") == "nosniff"
     assert d.headers.get("content-disposition", "").startswith("attachment")
+
+# ---------------------------------------------------------------------------
+# MEDIUM: concurrent lead mobile edits must preserve the same uniqueness
+# invariant as lead creation.
+# ---------------------------------------------------------------------------
+def test_concurrent_lead_mobile_updates_do_not_create_duplicate_identity():
+    headers = admin_headers()
+    lead_a = make_lead(headers)
+    lead_b = make_lead(headers)
+    target_mobile = _mobile()
+    results = []
+    barrier = threading.Barrier(2)
+
+    def update(lead_id):
+        barrier.wait(timeout=15)
+        response = client.patch(
+            f"/leads/{lead_id}",
+            json={"mobile": target_mobile},
+            headers=headers,
+        )
+        results.append(response.status_code)
+
+    threads = [
+        threading.Thread(target=update, args=(lead_a["id"],)),
+        threading.Thread(target=update, args=(lead_b["id"],)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert sorted(results) == [200, 400]

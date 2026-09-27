@@ -54,6 +54,17 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # Access tokens carry the user's session generation. Bumping it on
+    # password changes/resets/deactivation invalidates old access tokens
+    # immediately instead of waiting for JWT expiry.
+    token_session_version = payload.get("sv", 0)
+    if token_session_version != user.session_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return user
 
 

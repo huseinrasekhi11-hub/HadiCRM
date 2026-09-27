@@ -16,6 +16,21 @@ export function clearRequestCache() {
  * existed in memory. Clearing here therefore means: drop the in-memory
  * token, invalidate cached payloads and tell AuthContext to forget the user.
  */
+async function withRefreshLock(work) {
+  if (
+    typeof navigator !== "undefined" &&
+    navigator.locks &&
+    typeof navigator.locks.request === "function"
+  ) {
+    return navigator.locks.request(
+      "hadiflow-refresh-rotation",
+      { mode: "exclusive" },
+      work,
+    );
+  }
+  return work();
+}
+
 function clearSession() {
   clearAccessToken();
   // Cached payloads belong to the previous session; bumping the epoch
@@ -39,13 +54,12 @@ let refreshPromise = null;
  */
 export async function refreshAccessToken() {
   if (!refreshPromise) {
-    refreshPromise = api
-      .post("/auth/refresh-token", {}, { skipAuthRefresh: true })
-      .then((res) => {
-        const newToken = res.data?.access_token;
-        if (newToken) setAccessToken(newToken);
-        return newToken || null;
-      })
+    refreshPromise = withRefreshLock(async () => {
+      const res = await api.post("/auth/refresh-token", {}, { skipAuthRefresh: true });
+      const newToken = res.data?.access_token;
+      if (newToken) setAccessToken(newToken);
+      return newToken || null;
+    })
       .catch(() => null)
       .finally(() => {
         refreshPromise = null;
@@ -114,6 +128,7 @@ export async function changePassword(currentPassword, newPassword) {
     current_password: currentPassword,
     new_password: newPassword,
   });
+  if (res.data?.access_token) setAccessToken(res.data.access_token);
   return res.data;
 }
 
@@ -124,8 +139,9 @@ export async function changePassword(currentPassword, newPassword) {
  */
 export async function logoutSession() {
   try {
-    // No body: the refresh token is identified by its HttpOnly cookie.
-    await api.post("/auth/logout", {}, { skipAuthRefresh: true });
+    await withRefreshLock(async () => {
+      await api.post("/auth/logout", {}, { skipAuthRefresh: true });
+    });
   } catch {
     // network/API failure must not block local logout
   }

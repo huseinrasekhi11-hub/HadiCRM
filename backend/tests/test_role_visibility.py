@@ -212,6 +212,37 @@ def test_owner_sales_can_assign_own_lead():
     assert response.json()["owner_id"] == sales_b["id"]
 
 
+def test_lead_cannot_be_assigned_to_a_non_sales_role():
+    admin_headers = get_admin_headers()
+    sales_a, headers_a = create_user(admin_headers, "Visibility Assign Source", "sales")
+    service_user, _ = create_user(
+        admin_headers, "Visibility Service Target", "service"
+    )
+
+    lead = create_lead(headers_a)
+
+    response = client.patch(
+        f"/leads/{lead['id']}/assign",
+        json={"owner_id": service_user["id"]},
+        headers=headers_a,
+    )
+
+    assert response.status_code == 400
+    assert "sales" in response.text.lower() or "فروش" in response.text
+
+
+def test_assignable_user_picker_excludes_non_sales_roles():
+    admin_headers = get_admin_headers()
+    sales_user, _ = create_user(admin_headers, "Visibility Assignable Sales", "sales")
+    service_user, _ = create_user(admin_headers, "Visibility Assignable Service", "service")
+
+    response = client.get("/users/assignable", headers=admin_headers)
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.json()}
+    assert sales_user["id"] in ids
+    assert service_user["id"] not in ids
+
+
 def test_sales_cannot_assign_others_lead():
     admin_headers = get_admin_headers()
     sales_a, headers_a = create_user(admin_headers, "Visibility NoAssign A", "sales")

@@ -1,3 +1,4 @@
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.text_normalization import normalize_mobile
@@ -60,9 +61,17 @@ def get_users(db: Session):
 # (نه فقط ادمین/مدیرعامل) باید بتوانند از آن استفاده کنند
 # ----------------------------------
 def get_assignable_users(db: Session):
+    # Only sales-capable roles should ever appear in a lead-owner picker.
+    # Exposing every active role (customer, accounting, warehouse, ...)
+    # allowed a valid ID to be assigned to a user who has no lead scope.
+    from app.permissions.permission import LEAD_ASSIGNABLE_ROLES
+
     return (
         db.query(User)
-        .filter(User.is_active == True)
+        .filter(
+            User.is_active == True,
+            User.role.in_(LEAD_ASSIGNABLE_ROLES),
+        )
         .order_by(User.full_name)
         .all()
     )
@@ -81,7 +90,11 @@ def create_user(db: Session, user: UserCreate):
     )
 
     db.add(db_user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise ValueError("Mobile already exists") from exc
     db.refresh(db_user)
 
     return db_user
@@ -98,23 +111,37 @@ def update_user(
 
     data = user.model_dump(exclude_unset=True)
 
+    # Serialize updates that may invalidate sessions against concurrent
+    # password changes/resets and other account-state changes.
+    db_user = (
+        db.query(User)
+        .filter(User.id == db_user.id)
+        .with_for_update()
+        .one()
+    )
     was_active = db_user.is_active
 
     for key, value in data.items():
         setattr(db_user, key, value)
 
-    db.commit()
-    db.refresh(db_user)
-
-    # غیرفعال‌سازی باید نشست‌های فعالِ توکن تمدید را هم باطل کند؛
-    # وگرنه کاربرِ تعلیق‌شده تا ۷ روز می‌توانست با refresh tokenِ
-    # در دستش دسترسی جدید بسازد (بررسی is_active فقط در refresh مسیر
-    # را می‌بندد، ولی ابطال صریح، توکن سرقت‌شده را هم از کار می‌اندازد).
     if was_active and not db_user.is_active:
+        # Deactivation + session generation + refresh-session revocation
+        # commit together as one security transition.
+        db_user.session_version += 1
         from app.services.auth_service import revoke_all_for_user
 
-        revoke_all_for_user(db, db_user.id, reason="user_disabled")
-
+        revoke_all_for_user(
+            db,
+            db_user.id,
+            reason="user_disabled",
+            commit=False,
+        )
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise ValueError("Mobile already exists") from exc
+    db.refresh(db_user)
     return db_user
 
 
@@ -133,12 +160,24 @@ def delete_user(
     کاربر غیرفعال می‌شود: دیگر نمی‌تواند وارد شود و در فهرست «ارجاع به»
     ظاهر نمی‌شود، اما تمام ارجاعات تاریخی سالم می‌مانند.
     """
+    db_user = (
+        db.query(User)
+        .filter(User.id == db_user.id)
+        .with_for_update()
+        .one()
+    )
     db_user.is_active = False
-    db.commit()
-    db.refresh(db_user)
+    db_user.session_version += 1
 
-    # همه‌ی نشست‌های تمدیدِ فعال هم باطل می‌شوند (دلیل: user_disabled)
+    # Deactivation and refresh-session revocation must commit together.
     from app.services.auth_service import revoke_all_for_user
 
-    revoke_all_for_user(db, db_user.id, reason="user_disabled")
+    revoke_all_for_user(
+        db,
+        db_user.id,
+        reason="user_disabled",
+        commit=False,
+    )
+    db.commit()
+    db.refresh(db_user)
     return db_user

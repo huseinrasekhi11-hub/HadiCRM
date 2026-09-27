@@ -119,18 +119,19 @@ def login(
     #    واقعاً آن را باطل کنند (پیش از این jti هرگز ذخیره نمی‌شد و
     #    توکن سرقت‌شده تا ۷ روز قابل replay بود).
     refresh_jti = uuid4().hex
-    access_token = create_access_token(data={"sub": user.mobile})
+    access_token = create_access_token(
+        data={"sub": user.mobile, "sv": user.session_version}
+    )
     refresh_token = create_refresh_token(data={"sub": user.mobile}, jti=refresh_jti)
     create_session_for_login(db, user, refresh_jti)
 
-    # توکن تمدید در کوکیِ HttpOnly هم نصب می‌شود: مرورگر آن را خودکار
-    # می‌فرستد و جاوااسکریپت به آن دسترسی ندارد (XSS نمی‌تواند بدزدد).
-    # مقدارِ درونِ بدنه برای کلاینت‌های غیرمرورگری باقی مانده است.
+    # توکن تمدید فقط در کوکیِ HttpOnly نصب می‌شود. بازگرداندنِ آن در
+    # JSON عملاً مزیت HttpOnly را خنثی می‌کند: هر اسکریپتِ XSS می‌تواند
+    # پاسخ login/refresh را بخواند و refresh token را بدزدد.
     set_refresh_cookie(response, refresh_token, request)
 
     return {
         "access_token": access_token,
-        "refresh_token": refresh_token,
         "token_type": "bearer",
     }
 
@@ -195,21 +196,28 @@ def refresh_access_token(
         clear_refresh_cookie(response, request)
         raise credentials_exception
 
-    user = get_user_by_mobile(db, user_mobile)
+    # Bind the refresh session to the server-side user identity rather
+    # than the historical mobile string embedded in the JWT. This keeps a
+    # valid session usable after an administrator changes the mobile number.
+    user = db.query(User).filter(User.id == new_session.user_id).first()
     if not user or not user.is_active:
         clear_refresh_cookie(response, request)
         raise credentials_exception
 
-    new_access_token = create_access_token(data={"sub": user.mobile})
+    new_access_token = create_access_token(
+        data={"sub": user.mobile, "sv": user.session_version}
+    )
     new_refresh_token = create_refresh_token(
         data={"sub": user.mobile},
         jti=new_session.jti,
     )
     set_refresh_cookie(response, new_refresh_token, request)
 
+    # refresh token عمداً در پاسخ JSON بازگردانده نمی‌شود؛ فقط Set-Cookie
+    # آن را در اختیار مرورگر قرار می‌دهد، تا XSS نتواند نشستِ بلندمدت را
+    # مستقیماً از پاسخ شبکه استخراج کند.
     return {
         "access_token": new_access_token,
-        "refresh_token": new_refresh_token,
         "token_type": "bearer",
         "message": "توکن با موفقیت تمدید شد",
     }
@@ -260,14 +268,25 @@ def change_my_password(
 
     report_password_change_success(request, current_user.mobile)
 
-    # اگر نشستِ جاری حفظ نشده (کلاینت توکنی ارسال نکرده)، کوکی هم پاک
-    # می‌شود تا کاربر با همان رمزِ قدیمی دوباره وارد نشود.
+    # session_version invalidates the old bearer token immediately. When
+    # the current refresh session is kept, issue a replacement access token
+    # for this browser tab; the refresh credential remains HttpOnly-only.
     if keep_jti is None:
         clear_refresh_cookie(response, request)
+
+    fresh_access_token = (
+        create_access_token(
+            data={"sub": current_user.mobile, "sv": current_user.session_version}
+        )
+        if keep_jti is not None
+        else None
+    )
 
     return {
         "message": "رمز عبور با موفقیت تغییر کرد.",
         "current_session_kept": keep_jti is not None,
+        "access_token": fresh_access_token,
+        "token_type": "bearer" if fresh_access_token else None,
     }
 
 

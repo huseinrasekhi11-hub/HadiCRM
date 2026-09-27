@@ -29,7 +29,7 @@ HadiFlow یک سیستم CRM اختصاصی برای شرکت هادی تهوی�
 
 Backend
 
-- Python 3.13
+- Python 3.11 (CI/Docker baseline)
 - FastAPI
 
 Database
@@ -38,7 +38,7 @@ Database
 
 Cache
 
-- Redis
+- PostgreSQL-backed shared rate limiting; no Redis dependency is required by the current repository
 
 ORM
 
@@ -118,12 +118,10 @@ publish می‌کند و **TLS در این مخزن terminate نمی‌شود**.
 
 ### توکن‌ها در مرورگر
 
-access/refresh tokenها در `localStorage` نگهداری می‌شوند. ریسک آن
-(XSS → سرقت توکن) با نبودِ sink ناامنِ HTML در فرانت‌اند، چرخش
-refresh token در هر استفاده، ابطال سمت سرور (logout/غیرفعال‌سازی/
-تشخیص replay) و همگام‌سازی نشست بین تب‌ها کاهش یافته، اما حذف کامل
-آن نیازمند مهاجرت به کوکی‌های HttpOnly/SameSite یا معماری BFF است
-(به‌عنوان کار آتی مستند شده است).
+- **Refresh token:** فقط در کوکی `HttpOnly` + `Secure` + `SameSite` نگهداری می‌شود و در پاسخ JSON بازگردانده نمی‌شود. درخواست‌های cookie-authenticated برای refresh/logout با کنترل CSRF محافظت می‌شوند.
+- **Access token:** فقط در حافظه‌ی JavaScript نگهداری می‌شود؛ بعد از reload دوباره از refresh cookie صادر می‌شود.
+- هیچ توکن محرمانه‌ای در `localStorage` یا `sessionStorage` ذخیره نمی‌شود؛ فقط یک marker غیرحساس برای همگام‌سازی تب‌ها باقی می‌ماند.
+- اگر پنل از API با origin جداگانه استفاده می‌کند، HTTPS، `credentials` و `CORS_ORIGINS` باید مطابق تنظیمات production پیکربندی شوند.
 
 ---
 
