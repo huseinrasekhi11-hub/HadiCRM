@@ -39,7 +39,7 @@ PY
 if [ "$probe" = "no" ]; then
   echo "==> No alembic_version table found (legacy create_all database)."
   echo "==> Stamping schema at b7c8d9e0f1a2 before upgrading."
-  alembic stamp b7c8d9e0f1a2
+  alembic stamp a1b2c3d4e5f6
 fi
 
 # ۲) اعمال مهاجرت‌ها (در دفعات بعد فقط مهاجرت‌های تازه اجرا می‌شوند)
