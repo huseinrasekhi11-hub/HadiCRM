@@ -52,6 +52,8 @@ def set_sale_items(
     items,
     current_user: User,
     sync_sale_amount: bool = True,
+    *,
+    commit: bool = True,
 ) -> int:
     """
     جایگزینی کامل اقلام فروش یک پرونده (رفتار هم‌توان).
@@ -93,8 +95,9 @@ def set_sale_items(
         commit=False,
     )
 
-    db.commit()
-    db.refresh(lead)
+    if commit:
+        db.commit()
+        db.refresh(lead)
     return total
 
 
