@@ -86,15 +86,20 @@ def change_password(
         )
 
     user.password = hash_password(new_password)
-    db.commit()
-    db.refresh(user)
 
+    # Password update + revocation of every other refresh session must be
+    # one atomic database transition. If revocation fails, the password
+    # change must roll back instead of leaving stale sessions alive.
     revoked = revoke_all_for_user(
         db,
         user.id,
         reason=REVOKE_REASON_PASSWORD_CHANGE,
         except_jti=keep_jti,
+        commit=False,
     )
+    db.commit()
+    db.refresh(user)
+
     _audit_password_change(db, user, actor=user, revoked=revoked, by_admin=False)
     app_logger.info(
         f"[Auth] password changed for user {user.id}; "
@@ -120,14 +125,17 @@ def admin_reset_password(
     new_password = validate_password_policy(new_password)
 
     target_user.password = hash_password(new_password)
+
+    # Reset + revocation are one atomic security transition.
+    revoked = revoke_all_for_user(
+        db,
+        target_user.id,
+        reason=REVOKE_REASON_PASSWORD_CHANGE,
+        commit=False,
+    )
     db.commit()
     db.refresh(target_user)
 
-    # بازنشانیِ کامل: هیچ نشستی حفظ نمی‌شود (حتی نشستِ خودِ ادمین در
-    # صورتِ اشتباه‌گرفتنِ کاربر هدف — چون ادمین اینجا روی «دیگری» عمل می‌کند)
-    revoked = revoke_all_for_user(
-        db, target_user.id, reason=REVOKE_REASON_PASSWORD_CHANGE
-    )
     _audit_password_change(db, target_user, actor=actor, revoked=revoked, by_admin=True)
     app_logger.warning(
         f"[Auth] password reset for user {target_user.id} by admin {actor.id}; "
