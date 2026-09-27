@@ -1,3 +1,4 @@
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.text_normalization import normalize_mobile
@@ -89,7 +90,11 @@ def create_user(db: Session, user: UserCreate):
     )
 
     db.add(db_user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise ValueError("Mobile already exists") from exc
     db.refresh(db_user)
 
     return db_user
@@ -131,7 +136,11 @@ def update_user(
             reason="user_disabled",
             commit=False,
         )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise ValueError("Mobile already exists") from exc
     db.refresh(db_user)
     return db_user
 
