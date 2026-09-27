@@ -11,6 +11,8 @@ hash_password استفاده می‌شود تا با ورود واقعی ساز�
 شماره‌های واقعی اعضای تیم عمداً حذف شدند؛ پیش از اجرا، فهرست را با
 اطلاعات واقعی خودتان پر کنید. این فایل نباید با داده‌ی واقعی commit شود.
 """
+import os
+
 from app.auth.hashing import hash_password
 from app.database.database import SessionLocal
 from app.models.user import User
@@ -20,7 +22,10 @@ TEAM_MEMBERS = [
     # {"full_name": "نام و نام خانوادگی", "mobile": "0912xxxxxxx", "role": "sales"},
 ]
 
-DEFAULT_PASSWORD = "ChangeMe123!"
+DEFAULT_PASSWORD = os.environ.get("TEAM_DEFAULT_PASSWORD", "")
+
+if not DEFAULT_PASSWORD:
+    raise SystemExit("TEAM_DEFAULT_PASSWORD must be explicitly set before creating team accounts.")
 
 
 def create_team():
@@ -48,7 +53,7 @@ def create_team():
 
         db.commit()
         print("🎉 ثبت‌نام تیم با موفقیت به پایان رسید!")
-        print(f"💡 رمز عبور موقت همه: {DEFAULT_PASSWORD} — حتماً بعد از اولین ورود عوض شود.")
+        print("💡 برای حساب‌های تازه‌ساخته‌شده یک رمز موقت از طریق کانال امن تحویل دهید و سپس آن را تغییر دهید.")
     except Exception as e:
         print(f"❌ خطا: {e}")
         db.rollback()
