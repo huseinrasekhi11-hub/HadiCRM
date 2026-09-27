@@ -106,15 +106,23 @@ def update_user(
 
     data = user.model_dump(exclude_unset=True)
 
+    # Serialize updates that may invalidate sessions against concurrent
+    # password changes/resets and other account-state changes.
+    db_user = (
+        db.query(User)
+        .filter(User.id == db_user.id)
+        .with_for_update()
+        .one()
+    )
     was_active = db_user.is_active
 
     for key, value in data.items():
         setattr(db_user, key, value)
 
-    # Account deactivation + refresh-session revocation are a single
-    # transaction so a DB failure cannot leave a disabled account with
-    # still-valid refresh sessions.
     if was_active and not db_user.is_active:
+        # Deactivation + session generation + refresh-session revocation
+        # commit together as one security transition.
+        db_user.session_version += 1
         from app.services.auth_service import revoke_all_for_user
 
         revoke_all_for_user(
@@ -143,7 +151,14 @@ def delete_user(
     کاربر غیرفعال می‌شود: دیگر نمی‌تواند وارد شود و در فهرست «ارجاع به»
     ظاهر نمی‌شود، اما تمام ارجاعات تاریخی سالم می‌مانند.
     """
+    db_user = (
+        db.query(User)
+        .filter(User.id == db_user.id)
+        .with_for_update()
+        .one()
+    )
     db_user.is_active = False
+    db_user.session_version += 1
 
     # Deactivation and refresh-session revocation must commit together.
     from app.services.auth_service import revoke_all_for_user
