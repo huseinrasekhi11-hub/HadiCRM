@@ -24,6 +24,21 @@ from app.schemas.user import (
     AssignableUserResponse,
     AdminPasswordResetRequest,
 )
+def _lock_active_privileged_accounts(db: Session) -> list[User]:
+    """
+    Serialize destructive role changes against concurrent admin/CEO changes.
+    """
+    return (
+        db.query(User)
+        .filter(
+            User.role.in_([Roles.ADMIN, Roles.CEO]),
+            User.is_active.is_(True),
+        )
+        .with_for_update()
+        .all()
+    )
+
+
 router = APIRouter(
     prefix="/users",
     tags=["Users"],
@@ -93,6 +108,15 @@ def read_user(
         raise HTTPException(
             status_code=404,
             detail="User not found",
+        )
+
+    if (
+        user.id != current_user.id
+        and current_user.role not in (Roles.ADMIN, Roles.CEO, Roles.MANAGER)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied.",
         )
 
     return user
@@ -269,7 +293,19 @@ def edit_user(
             detail="You cannot deactivate or demote your own account.",
         )
     if db_user.role in (Roles.ADMIN, Roles.CEO) and db_user.is_active and (deactivating or demoting):
-        remaining = (
+        privileged = _lock_active_privileged_accounts(db)
+        remaining = sum(1 for row in privileged if row.id != db_user.id)
+        if remaining == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot deactivate or demote the last active admin/CEO account.",
+            )
+        # The locked snapshot above serializes this decision with concurrent
+        # privilege changes; update_user() takes the target-user row lock.
+        return update_user(db, db_user, user)
+
+    return update_user(db, db_user, user)
+
             db.query(User)
             .filter(
                 User.role.in_([Roles.ADMIN, Roles.CEO]),
