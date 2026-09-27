@@ -2,6 +2,7 @@ from datetime import datetime
 from datetime import timezone
 
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from app.models.task import Task
 from app.models.lead import Lead
@@ -89,6 +90,18 @@ def get_notification_feed(
         .outerjoin(Lead, Notification.lead_id == Lead.id)
         .filter(Notification.user_id == current_user.id)
     )
+
+    # A soft-deleted lead is intentionally outside the normal user's
+    # visibility boundary. Old notifications can outlive the lead, so
+    # suppress those notifications for ordinary users instead of leaking
+    # customer identity/message text after deletion. Admin/CEO users retain
+    # the historical notification view and can use the dedicated deletion
+    # audit/timeline surfaces.
+    from app.constants.roles import Roles
+    if current_user.role not in (Roles.ADMIN, Roles.CEO):
+        query = query.filter(
+            or_(Notification.lead_id.is_(None), Lead.is_deleted == False)
+        )
 
     if unread_only:
         query = query.filter(Notification.is_read == False)
