@@ -127,12 +127,41 @@ is down, so it is safe to use as an orchestrator/uptime probe (`/` is not).
 
 ## 6. Known deployment caveat: the advertised URL
 
-The repository "About" URL (`hadi-crm-flame.vercel.app`) and the URL quoted in
-older audits (`hadi-crm-rho.vercel.app`) point at Vercel projects that are not
-reachable from an outside network probe. This is a Vercel project setting, not
-something in the repository: re-link the Vercel project (or update the About
-URL in GitHub → repository settings) after deploying. Verify with:
+The URL quoted in older audits (`hadi-crm-rho.vercel.app`) and the one in the
+repository "About" box (`hadi-crm-flame.vercel.app`) are **stale**: neither is
+served any more.
+
+The Vercel project that is actually connected to this repository is
+`hadi-crm` (team `juror`) — it builds and deploys on every push/PR (branch
+previews such as
+`https://hadi-crm-git-<branch>-juror.vercel.app` reported "Ready" for this
+work). So the 404 was not a broken build: the advertised link simply points at
+an old project.
+
+To fix it (repository owner only — this cannot be done from a commit):
+
+1. Vercel → project `hadi-crm` → *Domains*: confirm the production domain
+   (or add a custom one).
+2. GitHub → repository → *About* (gear icon) → paste that production URL.
+
+### The panel needs one build variable to talk to the API
+
+A Vercel deployment of the panel will default to
+`VITE_API_BASE_URL=http://localhost:8000` unless it is set, which means the
+deployed site can never reach the API. Set it in the Vercel project
+(*Settings → Environment Variables*):
+
+| Setup | `VITE_API_BASE_URL` | API side |
+|---|---|---|
+| API proxied under the same domain (recommended, see §2) | `/api` | `REFRESH_COOKIE_PATH=/api/auth`, `REFRESH_COOKIE_SAMESITE=lax` |
+| API on its own host | `https://<api-host>` | `REFRESH_COOKIE_SAMESITE=none`, `REFRESH_COOKIE_SECURE=true`, `CORS_ORIGINS=https://<panel-host>` |
+
+Verify a deployment with:
 
 ```bash
-curl -sS -o /dev/null -w '%{http_code}\n' https://<panel-host>/
+curl -sS -o /dev/null -w '%{http_code}' https://<panel-host>/
+curl -sS https://<api-host>/health
 ```
+
+(These hosts are not reachable from a restricted CI/sandbox network - run the
+checks from a normal machine.)
