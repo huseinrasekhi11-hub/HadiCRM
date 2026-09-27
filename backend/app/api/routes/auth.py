@@ -123,14 +123,13 @@ def login(
     refresh_token = create_refresh_token(data={"sub": user.mobile}, jti=refresh_jti)
     create_session_for_login(db, user, refresh_jti)
 
-    # توکن تمدید در کوکیِ HttpOnly هم نصب می‌شود: مرورگر آن را خودکار
-    # می‌فرستد و جاوااسکریپت به آن دسترسی ندارد (XSS نمی‌تواند بدزدد).
-    # مقدارِ درونِ بدنه برای کلاینت‌های غیرمرورگری باقی مانده است.
+    # توکن تمدید فقط در کوکیِ HttpOnly نصب می‌شود. بازگرداندنِ آن در
+    # JSON عملاً مزیت HttpOnly را خنثی می‌کند: هر اسکریپتِ XSS می‌تواند
+    # پاسخ login/refresh را بخواند و refresh token را بدزدد.
     set_refresh_cookie(response, refresh_token, request)
 
     return {
         "access_token": access_token,
-        "refresh_token": refresh_token,
         "token_type": "bearer",
     }
 
@@ -207,9 +206,11 @@ def refresh_access_token(
     )
     set_refresh_cookie(response, new_refresh_token, request)
 
+    # refresh token عمداً در پاسخ JSON بازگردانده نمی‌شود؛ فقط Set-Cookie
+    # آن را در اختیار مرورگر قرار می‌دهد، تا XSS نتواند نشستِ بلندمدت را
+    # مستقیماً از پاسخ شبکه استخراج کند.
     return {
         "access_token": new_access_token,
-        "refresh_token": new_refresh_token,
         "token_type": "bearer",
         "message": "توکن با موفقیت تمدید شد",
     }
