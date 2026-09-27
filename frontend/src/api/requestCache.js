@@ -9,7 +9,7 @@
 import axios from "axios";
 import { getAccessToken } from "./tokenStore.js";
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const BASE_URL = import.meta.env?.VITE_API_BASE_URL || "http://localhost:8000";
 
 // `withCredentials` is what makes the browser send the HttpOnly refresh
 // cookie on /auth/refresh-token and /auth/logout. Without it the session
