@@ -50,3 +50,21 @@ def test_access_and_refresh_tokens_have_distinct_jti():
     payload_b = verify_token(token_b)
 
     assert payload_a["jti"] != payload_b["jti"]
+
+def test_untyped_legacy_token_is_rejected_as_access():
+    """Security migration: untyped legacy JWTs must not regain refresh-as-access."""
+    import jwt
+    from datetime import datetime, timedelta, timezone
+    from app.config.settings import settings
+
+    legacy = jwt.encode(
+        {
+            "sub": "09123456789",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        },
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
+
+    assert verify_token(legacy, expected_type="access") is None
+    assert verify_token(legacy, expected_type="refresh") is None
