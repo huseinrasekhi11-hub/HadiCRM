@@ -282,9 +282,7 @@ def edit_user(
                 detail="Mobile already exists",
             )
 
-    # همان محافظت‌های DELETE، این‌جا هم لازم است: پیش از این ادمین می‌توانست
-    # با PUT خودش را غیرفعال کند یا نقش آخرین ادمین/مدیرعامل را عوض کند و
-    # کل پنل مدیریتی بدون هیچ راه بازگشتی قفل می‌شد.
+    # Prevent self-lockout and serialize the last-admin/CEO decision.
     deactivating = user.is_active is False
     demoting = user.role is not None and user.role not in (Roles.ADMIN, Roles.CEO)
     if db_user.id == current_user.id and (deactivating or demoting):
@@ -292,28 +290,14 @@ def edit_user(
             status_code=400,
             detail="You cannot deactivate or demote your own account.",
         )
-    if db_user.role in (Roles.ADMIN, Roles.CEO) and db_user.is_active and (deactivating or demoting):
+
+    if (
+        db_user.role in (Roles.ADMIN, Roles.CEO)
+        and db_user.is_active
+        and (deactivating or demoting)
+    ):
         privileged = _lock_active_privileged_accounts(db)
         remaining = sum(1 for row in privileged if row.id != db_user.id)
-        if remaining == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot deactivate or demote the last active admin/CEO account.",
-            )
-        # The locked snapshot above serializes this decision with concurrent
-        # privilege changes; update_user() takes the target-user row lock.
-        return update_user(db, db_user, user)
-
-    return update_user(db, db_user, user)
-
-            db.query(User)
-            .filter(
-                User.role.in_([Roles.ADMIN, Roles.CEO]),
-                User.is_active.is_(True),
-                User.id != db_user.id,
-            )
-            .count()
-        )
         if remaining == 0:
             raise HTTPException(
                 status_code=400,
@@ -355,16 +339,9 @@ def remove_user(
 
     # محافظت ۲: آخرین ادمین/مدیرعامل فعال نباید حذف شود، وگرنه هیچ‌کس
     # دیگر به بخش‌های مدیریتی دسترسی نخواهد داشت.
-    if db_user.role in (Roles.ADMIN, Roles.CEO):
-        remaining = (
-            db.query(User)
-            .filter(
-                User.role.in_([Roles.ADMIN, Roles.CEO]),
-                User.is_active.is_(True),
-                User.id != db_user.id,
-            )
-            .count()
-        )
+    if db_user.role in (Roles.ADMIN, Roles.CEO) and db_user.is_active:
+        privileged = _lock_active_privileged_accounts(db)
+        remaining = sum(1 for row in privileged if row.id != db_user.id)
         if remaining == 0:
             raise HTTPException(
                 status_code=400,
