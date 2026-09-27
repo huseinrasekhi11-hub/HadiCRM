@@ -1,5 +1,10 @@
-import { getMe, login as apiLogin, logoutSession, refreshAccessToken } from "../api/client";
-import { clearRequestCache } from "../api/client";
+import {
+  clearRequestCache,
+  getMe,
+  login as apiLogin,
+  logoutSession,
+  refreshAccessToken,
+} from "../api/client";
 import {
   broadcastSessionEvent,
   clearAccessToken,
