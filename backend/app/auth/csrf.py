@@ -58,4 +58,25 @@ def enforce_csrf_for_cookie_auth(request: Request) -> None:
         detail="توکن تمدید نامعتبر یا منقضی شده است",
         headers={"WWW-Authenticate": "Bearer"},
     )
-\n\ndef enforce_csrf_for_browser_request(request: Request) -> None:\n    """Reject cross-site browser state-changing requests before login/auth state changes."""\n    fetch_site = request.headers.get("sec-fetch-site", "").lower()\n    if fetch_site == "cross-site":\n        raise HTTPException(\n            status_code=status.HTTP_401_UNAUTHORIZED,\n            detail="توکن تمدید نامعتبر یا منقضی شده است",\n            headers={"WWW-Authenticate": "Bearer"},\n        )\n    origin = request.headers.get("origin")\n    if not origin:\n        return\n    allowed = _allowed_origins()\n    if origin.lower().rstrip("/") in allowed:\n        return\n    raise HTTPException(\n        status_code=status.HTTP_401_UNAUTHORIZED,\n        detail="درخواست مرورگر غیرمجاز است",\n        headers={"WWW-Authenticate": "Bearer"},\n    )\n
+
+
+def enforce_csrf_for_browser_request(request: Request) -> None:
+    """Reject cross-site browser state-changing requests before login/auth state changes."""
+    fetch_site = request.headers.get("sec-fetch-site", "").lower()
+    if fetch_site == "cross-site":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="توکن تمدید نامعتبر یا منقضی شده است",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    origin = request.headers.get("origin")
+    if not origin:
+        return
+    allowed = _allowed_origins()
+    if origin.lower().rstrip("/") in allowed:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="درخواست مرورگر غیرمجاز است",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
