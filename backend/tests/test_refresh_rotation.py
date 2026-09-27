@@ -71,7 +71,7 @@ def _session_row(jti: str) -> RefreshSession | None:
 def test_login_creates_server_side_refresh_session():
     res = _login(ADMIN_MOBILE, ADMIN_PASSWORD)
     assert res.status_code == 200
-    refresh_token = res.json()["refresh_token"]
+    refresh_token = client.cookies.get(settings.REFRESH_COOKIE_NAME)
 
     row = _session_row(_jti_of(refresh_token))
     assert row is not None, "refresh token jti must be persisted server-side"
@@ -84,14 +84,15 @@ def test_login_creates_server_side_refresh_session():
 # -----------------------------------------------------------
 def test_refresh_rotates_tokens():
     res = _login(ADMIN_MOBILE, ADMIN_PASSWORD)
-    old_refresh = res.json()["refresh_token"]
+    old_refresh = client.cookies.get(settings.REFRESH_COOKIE_NAME)
     old_jti = _jti_of(old_refresh)
 
     res = _refresh(old_refresh)
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["access_token"]
-    new_refresh = body["refresh_token"]
+    new_refresh = client.cookies.get(settings.REFRESH_COOKIE_NAME)
+    assert new_refresh
     assert new_refresh != old_refresh, "refresh token must rotate on every use"
 
     old_row = _session_row(old_jti)
@@ -109,11 +110,11 @@ def test_refresh_rotates_tokens():
 # -----------------------------------------------------------
 def test_reuse_of_consumed_token_revokes_entire_family():
     res = _login(ADMIN_MOBILE, ADMIN_PASSWORD)
-    first = res.json()["refresh_token"]
+    first = client.cookies.get(settings.REFRESH_COOKIE_NAME)
 
     res = _refresh(first)
     assert res.status_code == 200
-    second = res.json()["refresh_token"]
+    second = client.cookies.get(settings.REFRESH_COOKIE_NAME)
 
     # attacker (or a stale client) replays the consumed first token
     res = _refresh(first)
@@ -142,7 +143,7 @@ def test_reuse_of_consumed_token_revokes_entire_family():
 # -----------------------------------------------------------
 def test_logout_revokes_refresh_session():
     res = _login(ADMIN_MOBILE, ADMIN_PASSWORD)
-    refresh_token = res.json()["refresh_token"]
+    refresh_token = client.cookies.get(settings.REFRESH_COOKIE_NAME)
 
     res = client.post("/auth/logout", json={"refresh_token": refresh_token})
     assert res.status_code == 204
@@ -158,7 +159,7 @@ def test_logout_is_silent_for_unknown_or_invalid_tokens():
 
 def test_logout_twice_is_idempotent():
     res = _login(ADMIN_MOBILE, ADMIN_PASSWORD)
-    refresh_token = res.json()["refresh_token"]
+    refresh_token = client.cookies.get(settings.REFRESH_COOKIE_NAME)
     assert client.post("/auth/logout", json={"refresh_token": refresh_token}).status_code == 204
     assert client.post("/auth/logout", json={"refresh_token": refresh_token}).status_code == 204
 
@@ -184,7 +185,7 @@ def test_deactivated_user_refresh_sessions_are_revoked():
 
     res = _login(mobile, "StrongPass!123")
     assert res.status_code == 200, res.text
-    refresh_token = res.json()["refresh_token"]
+    refresh_token = client.cookies.get(settings.REFRESH_COOKIE_NAME)
 
     res = client.put(
         f"/users/{user_id}",

@@ -16,6 +16,11 @@ from app.models.user import User
 from app.schemas.activity import ActivityCreate
 
 
+class LeadRestoreConflictError(ValueError):
+    """Raised when restoring a lead would violate active mobile identity uniqueness."""
+
+
+
 def _build_lead_snapshot(lead: Lead) -> dict:
     """
     ساخت اسنپ‌شات کامل JSON از پرونده در لحظه‌ی حذف.
@@ -170,9 +175,31 @@ def restore_deleted_lead(
 
     در صورتی که پرونده فیزیکاً وجود نداشته باشد، None برمی‌گردد.
     """
-    lead = db.query(Lead).filter(Lead.id == audit.lead_id).first()
+    lead = (
+        db.query(Lead)
+        .filter(Lead.id == audit.lead_id)
+        .with_for_update()
+        .first()
+    )
     if not lead:
         return None
+
+    mobile_normalized = lead.mobile_normalized or audit.mobile_normalized
+    if mobile_normalized:
+        clash = (
+            db.query(Lead)
+            .filter(
+                Lead.id != lead.id,
+                Lead.is_deleted == False,
+                Lead.mobile_normalized == mobile_normalized,
+            )
+            .with_for_update()
+            .first()
+        )
+        if clash is not None:
+            raise LeadRestoreConflictError(
+                "A different active lead already uses this mobile number."
+            )
 
     lead.is_deleted = False
     lead.deleted_at = None

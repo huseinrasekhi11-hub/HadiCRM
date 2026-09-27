@@ -71,6 +71,7 @@ _JOB_LOCK_KEYS = {
     "rule3_escalation": 910003,
     "rule4_followup_due": 910004,
     "refresh_session_cleanup": 910005,
+    "login_rate_event_cleanup": 910006,
 }
 
 

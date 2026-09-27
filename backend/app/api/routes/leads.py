@@ -37,6 +37,7 @@ from app.crud.sale_item import add_sale_item, get_lead_sale_items, set_sale_item
 from app.crud.task import create_task, get_lead_task_by_id, get_lead_tasks, update_task_status
 from app.crud.user import get_user
 from app.database.database import get_db
+from app.models.lead import Lead
 from app.models.user import User
 from app.permissions.permission import (
     LEAD_ASSIGNABLE_ROLES,
@@ -269,18 +270,28 @@ def change_lead_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found.")
     if status_data.sale_items:
         _validate_sale_item_products(db, status_data.sale_items)
+    atomic_sale = status_data.status == FINAL_FACTOR_STATUS and bool(status_data.sale_items)
     try:
-        updated_lead = update_lead_status(db, lead, status_data, current_user)
+        updated_lead = update_lead_status(
+            db,
+            lead,
+            status_data,
+            current_user,
+            commit=not atomic_sale,
+        )
     except InvoiceLockedError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
-    if status_data.status == FINAL_FACTOR_STATUS and status_data.sale_items:
+    if atomic_sale:
         set_sale_items(
             db,
             updated_lead,
             status_data.sale_items,
             current_user,
             sync_sale_amount=(status_data.sale_amount is None),
+            commit=False,
         )
+        db.commit()
+        db.refresh(updated_lead)
     create_audit_log(
         db,
         current_user.id,
@@ -318,6 +329,20 @@ def create_lead_sale_item(
     lead = get_my_lead_by_id(db, lead_id, current_user)
     if not lead:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found.")
+
+    # Reload under a row lock so invoice status cannot become stale mid-write.
+    lead = (
+        db.query(Lead)
+        .populate_existing()
+        .filter(Lead.id == lead_id, Lead.is_deleted == False)
+        .with_for_update()
+        .first()
+    )
+    if not lead:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found.")
+    if not can_view_all_leads(current_user) and lead.owner_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found.")
+
     # قفل فاکتور: افزودن قلم فروش به پرونده‌ی فاکتورشده هم باید مسدود باشد،
     # وگرنه کارشناس می‌توانست از مسیر تغییر وضعیت عبور کند و مبلغ را عوض کند.
     try:

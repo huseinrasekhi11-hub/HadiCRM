@@ -109,6 +109,9 @@ class Settings(BaseSettings):
     # reverse proxy IP/CIDR. Empty means the header is ignored.
     TRUSTED_PROXY_IPS: str = ""
 
+    # Reject oversized raw HTTP bodies before application parsing.
+    MAX_REQUEST_BODY_BYTES: int = 25 * 1024 * 1024
+
     @field_validator("SECRET_KEY")
     @classmethod
     def require_strong_secret_key(cls, v: str) -> str:

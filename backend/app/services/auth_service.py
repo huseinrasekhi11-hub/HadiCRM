@@ -248,11 +248,45 @@ def revoke_session(db: Session, jti: str, reason: str = REVOKE_REASON_LOGOUT) ->
 
 
 def revoke_by_token_payload(db: Session, payload: dict, reason: str) -> bool:
-    """ابطال بر اساس payload یک توکن تمدیدِ از قبل verify‌شده."""
+    """
+    Revoke a refresh token and, when it was already rotated, close the
+    replacement family as well. This closes the refresh-vs-logout race.
+    """
     jti = payload.get("jti")
     if not jti:
         return False
-    return revoke_session(db, jti, reason=reason)
+
+    session = (
+        db.query(RefreshSession)
+        .filter(RefreshSession.jti == jti)
+        .with_for_update()
+        .first()
+    )
+    if session is None:
+        return False
+
+    if session.is_revoked:
+        if session.revoked_reason == REVOKE_REASON_ROTATED:
+            count = (
+                db.query(RefreshSession)
+                .filter(
+                    RefreshSession.family_id == session.family_id,
+                    RefreshSession.revoked_at.is_(None),
+                )
+                .update(
+                    {"revoked_at": _utcnow(), "revoked_reason": reason},
+                    synchronize_session=False,
+                )
+            )
+            db.commit()
+            return bool(count)
+        db.commit()
+        return False
+
+    session.revoked_at = _utcnow()
+    session.revoked_reason = reason
+    db.commit()
+    return True
 
 
 def revoke_all_for_user(

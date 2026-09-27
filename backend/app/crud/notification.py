@@ -86,7 +86,7 @@ def get_notification_feed(
     بدون نیاز به یک درخواست جداگانه به ازای هر نوتیفیکیشن.
     """
     query = (
-        db.query(Notification, Lead.customer_name, Lead.mobile)
+        db.query(Notification, Lead.customer_name, Lead.mobile, Lead.is_deleted)
         .outerjoin(Lead, Notification.lead_id == Lead.id)
         .filter(Notification.user_id == current_user.id)
     )
@@ -117,10 +117,10 @@ def get_notification_feed(
             "message": n.message,
             "is_read": n.is_read,
             "created_at": n.created_at,
-            "lead_customer_name": customer_name,
-            "lead_mobile": mobile,
+            "lead_customer_name": None if is_deleted else customer_name,
+            "lead_mobile": None if is_deleted else mobile,
         }
-        for n, customer_name, mobile in rows
+        for n, customer_name, mobile, is_deleted in rows
     ]
 
 

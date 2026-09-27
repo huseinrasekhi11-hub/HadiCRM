@@ -427,3 +427,22 @@ def test_password_reset_is_written_to_the_audit_log():
     finally:
         db.close()
     assert after == before + 1
+
+def test_cookie_auth_rejects_cross_site_fetch_metadata_without_origin():
+    client.cookies.clear()
+    assert _login(ADMIN_MOBILE, ADMIN_PASSWORD).status_code == 200
+    res = client.post(
+        "/auth/refresh-token",
+        json={},
+        headers={"Sec-Fetch-Site": "cross-site"},
+    )
+    assert res.status_code == 401
+
+
+def test_browser_login_rejects_foreign_origin():
+    res = client.post(
+        "/auth/login",
+        data={"username": ADMIN_MOBILE, "password": ADMIN_PASSWORD},
+        headers={"Origin": "https://evil.example.com"},
+    )
+    assert res.status_code == 401

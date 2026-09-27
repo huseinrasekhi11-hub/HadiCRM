@@ -65,3 +65,39 @@ def test_me_rejects_missing_token():
     response = client.get("/auth/me")
 
     assert response.status_code == 401
+
+
+def test_legacy_untyped_jwt_is_rejected():
+    import jwt
+    from datetime import datetime, timedelta, timezone
+    from app.config.settings import settings
+
+    token = jwt.encode(
+        {
+            "sub": "09120000000",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            "iat": datetime.now(timezone.utc),
+        },
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
+    assert client.get("/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+    assert client.post("/auth/refresh-token", json={"refresh_token": token}).status_code == 401
+
+
+def test_access_token_without_session_version_is_rejected():
+    import jwt
+    from datetime import datetime, timedelta, timezone
+    from app.config.settings import settings
+
+    token = jwt.encode(
+        {
+            "sub": "09120000000",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            "iat": datetime.now(timezone.utc),
+            "type": "access",
+        },
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
+    assert client.get("/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
