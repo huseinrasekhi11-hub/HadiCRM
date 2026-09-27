@@ -44,6 +44,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request, status
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config.settings import settings
